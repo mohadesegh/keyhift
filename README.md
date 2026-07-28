@@ -64,14 +64,23 @@ hard-coded English-to-Persian character tables.
 
 ## Platform support
 
-KeyShift currently supports:
+The npm package and configuration CLI can be installed on:
 
 ```text
 Windows 10
 Windows 11
+macOS
+Linux
 ```
 
-KeyShift does not currently support:
+The global shortcut, layout discovery and text conversion host currently
+support Windows 10 and Windows 11 only because they use native Windows
+keyboard APIs. On macOS and Linux, installation and platform-independent
+commands such as `keyshift --help`, `keyshift init`, `keyshift config show`,
+`keyshift status` and `keyshift logs` work normally. `keyshift start`,
+`keyshift layouts` and `keyshift update-host` return a clear platform error.
+
+KeyShift does not currently run the global shortcut host on:
 
 ```text
 macOS
@@ -86,12 +95,16 @@ iOS
 
 Before installing KeyShift, make sure the following software is available:
 
-- Windows 10 or Windows 11
 - Node.js 18 or newer
 - npm
+
+Running the global shortcut host additionally requires:
+
+- Windows 10 or Windows 11
 - .NET Framework 4.x runtime
 
-The npm package includes a compiled native Windows host.
+The npm package includes a compiled Windows native host. macOS and Linux do
+not need PowerShell or .NET to install the package.
 
 The .NET Framework compiler is required only when building KeyShift from
 source.
@@ -117,6 +130,10 @@ Start KeyShift:
 ```bash
 keyshift start
 ```
+
+`keyshift start` requires Windows. On macOS and Linux, the CLI remains
+available for configuration and inspection, but the native shortcut host
+cannot run yet.
 
 Check its status:
 
@@ -986,13 +1003,17 @@ Install dependencies:
 npm install
 ```
 
-Build TypeScript and the native host:
+Build TypeScript and prepare the native host:
 
 ```bash
 npm run build
 ```
 
-The native host is compiled using the .NET Framework C# compiler:
+On macOS and Linux, this builds the CLI and packages the checked-in prebuilt
+Windows host without invoking PowerShell. This makes `npm pack` work on all
+three desktop platforms.
+
+On Windows, the native host is compiled using the .NET Framework C# compiler:
 
 ```text
 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe
@@ -1204,6 +1225,7 @@ keyshift/
 │   ├── KeyShiftHost.cs
 │   └── keyshift-host.exe
 ├── scripts/
+│   ├── build-host.js
 │   └── build-host.ps1
 ├── src/
 │   ├── cli.ts

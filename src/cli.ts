@@ -37,6 +37,18 @@ const hostSourcePath = path.join(packageRoot, "native", "KeyShiftHost.cs");
 
 const installedHostExePath = path.join(appDir, "keyshift-host.exe");
 
+function requireWindows(command: string): void {
+	if (process.platform === "win32") {
+		return;
+	}
+
+	throw new Error(
+		`${command} requires Windows 10 or Windows 11. ` +
+			"The KeyShift CLI can be installed on macOS and Linux, but the " +
+			"global shortcut host currently uses Windows APIs.",
+	);
+}
+
 function printHelp(): void {
 	console.log(`
 KeyShift CLI
@@ -124,6 +136,8 @@ function parseNumber(key: string, value: string): number {
 	return parsed;
 }
 async function installNativeHost(force = false): Promise<void> {
+	requireWindows("Updating the native host");
+
 	await ensureAppDir();
 
 	if (existsSync(installedHostExePath) && !force) {
@@ -263,9 +277,7 @@ async function setConfig(keyInput: string, rawValue: string): Promise<void> {
 }
 
 async function compileNativeHost(): Promise<void> {
-	if (process.platform !== "win32") {
-		throw new Error("KeyShift currently supports Windows only.");
-	}
+	requireWindows("Compiling the native host");
 
 	await ensureAppDir();
 
@@ -376,9 +388,7 @@ async function isRunning(): Promise<boolean> {
 }
 
 async function start(): Promise<void> {
-	if (process.platform !== "win32") {
-		throw new Error("KeyShift currently supports Windows only.");
-	}
+	requireWindows("Starting KeyShift");
 
 	await ensureAppDir();
 
@@ -484,9 +494,7 @@ async function restart(): Promise<void> {
 }
 
 async function showLayouts(): Promise<void> {
-	if (process.platform !== "win32") {
-		throw new Error("Keyboard layout discovery is supported on Windows only.");
-	}
+	requireWindows("Keyboard layout discovery");
 
 	await ensureNativeHost();
 
