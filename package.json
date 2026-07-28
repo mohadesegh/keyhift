@@ -14,11 +14,6 @@
 	"bugs": {
 		"url": "https://github.com/mohadesegh/keyshift/issues"
 	},
-	"social": {
-		"github": "https://github.com/mohadesegh",
-		"linkedin": "https://www.linkedin.com/in/YOUR-LINKEDIN-USERNAME"
-	},
-	"license": "MIT",
 	"type": "commonjs",
 	"main": "./dist/cli.js",
 	"bin": {
