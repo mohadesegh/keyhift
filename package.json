@@ -1,0 +1,67 @@
+{
+	"name": "keyshift",
+	"version": "1.1.0",
+	"description": "Fix text typed with the wrong Windows keyboard layout using a global shortcut.",
+	"author": {
+		"name": "Mohadese Ghadimi",
+		"url": "https://github.com/mohadesegh"
+	},
+	"homepage": "https://github.com/mohadesegh/keyshift#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/mohadesegh/keyhift"
+	},
+	"bugs": {
+		"url": "https://github.com/mohadesegh/keyshift/issues"
+	},
+	"social": {
+		"github": "https://github.com/mohadesegh",
+		"linkedin": "https://www.linkedin.com/in/YOUR-LINKEDIN-USERNAME"
+	},
+	"license": "MIT",
+	"type": "commonjs",
+	"main": "./dist/cli.js",
+	"bin": {
+		"keyshift": "./dist/cli.js"
+	},
+	"files": [
+		"dist",
+		"native/keyshift-host.exe",
+		"native/KeyShiftHost.cs",
+		"README.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+		"build:ts": "tsc",
+		"build:host": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-host.ps1",
+		"build": "npm run clean && npm run build:ts && npm run build:host",
+		"prepack": "npm run build",
+		"start": "node ./dist/cli.js start",
+		"stop": "node ./dist/cli.js stop"
+	},
+	"keywords": [
+		"keyboard-layout",
+		"layout-switcher",
+		"wrong-keyboard-layout",
+		"persian-keyboard",
+		"farsi-keyboard",
+		"windows",
+		"global-hotkey",
+		"keyboard-converter",
+		"qwerty",
+		"azerty",
+		"qwertz"
+	],
+	"engines": {
+		"node": ">=18"
+	},
+	"os": [
+		"win32"
+	],
+	"license": "MIT",
+	"devDependencies": {
+		"@types/node": "^22.0.0",
+		"typescript": "^5.8.0"
+	}
+}

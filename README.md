@@ -212,6 +212,13 @@ The exact layout installed on a machine may differ from the common examples.
 
 ## Commands
 
+## Author
+
+**Mohadese Ghadimi**
+
+- GitHub: [mohadesegh](https://github.com/mohadesegh)
+- LinkedIn: [Mohadese Ghadimi](https://www.linkedin.com/in/mohadese-ghadimi/)
+
 ### Initialise configuration
 
 ```bash
