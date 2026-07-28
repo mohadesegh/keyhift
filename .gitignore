@@ -3,7 +3,7 @@ dist/
 
 *.log
 *.tgz
-
+.codegraph
 .DS_Store
 Thumbs.db
 

@@ -29,8 +29,8 @@ export const defaultConfig: KeyShiftConfig = {
 
   layoutMode: "auto",
 
-  sourceLayout: "00000409",
-  targetLayout: "00000429",
+  sourceLayout: process.platform === "win32" ? "00000409" : "en-US",
+  targetLayout: process.platform === "win32" ? "00000429" : "fa-IR",
 
   directionDetection: "hybrid",
 

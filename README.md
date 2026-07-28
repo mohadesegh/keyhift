@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  A lightweight Windows CLI that converts text typed with the wrong keyboard
-  layout using one global shortcut.
+  A lightweight cross-platform CLI that converts text typed with the wrong
+  keyboard layout using one global shortcut.
 </p>
 
 <p align="center">
@@ -17,8 +17,8 @@
 
 ## Overview
 
-KeyShift fixes text that was accidentally typed with the wrong Windows
-keyboard layout.
+KeyShift fixes text that was accidentally typed with the wrong keyboard
+layout.
 
 For example, you intended to type:
 
@@ -38,33 +38,35 @@ Press the configured KeyShift shortcut and the text is converted automatically:
 سلام
 ```
 
-KeyShift uses the keyboard layouts installed on Windows. It does not depend on
-hard-coded English-to-Persian character tables.
+On Windows, KeyShift reads the keyboard layouts installed in the operating
+system. On macOS and Linux it currently provides the English (US) and Persian
+ISIRI 9147 conversion pair.
 
 ---
 
 ## Features
 
-- Global Windows keyboard shortcut
+- Global keyboard shortcut on Windows, macOS and X11 Linux
 - Converts text between two configured keyboard layouts
 - Automatic conversion-direction detection
-- Supports standard keyboard layouts installed on Windows
+- Uses installed keyboard layouts on Windows
+- English (US) and Persian ISIRI 9147 on macOS and Linux
 - English and Persian conversion
-- Turkish, German, French, Arabic and other standard layouts
+- Turkish, German, French, Arabic and other installed layouts on Windows
 - Optional clipboard preservation
 - Convert the complete focused text field
 - Convert only selected text
 - Configurable copy and paste delays
-- Background native Windows host
+- Native Windows host and portable macOS/Linux host
 - CLI-based configuration
 - Lightweight installation
-- No external runtime process after startup besides the native host
+- A single background host process
 
 ---
 
 ## Platform support
 
-The npm package and configuration CLI can be installed on:
+KeyShift can be installed and run on:
 
 ```text
 Windows 10
@@ -73,18 +75,17 @@ macOS
 Linux
 ```
 
-The global shortcut, layout discovery and text conversion host currently
-support Windows 10 and Windows 11 only because they use native Windows
-keyboard APIs. On macOS and Linux, installation and platform-independent
-commands such as `keyshift --help`, `keyshift init`, `keyshift config show`,
-`keyshift status` and `keyshift logs` work normally. `keyshift start`,
-`keyshift layouts` and `keyshift update-host` return a clear platform error.
+The Windows host supports every keyboard layout exposed by the Windows
+keyboard APIs. The macOS/Linux host currently supports the `en-US` and
+`fa-IR` pair.
 
-KeyShift does not currently run the global shortcut host on:
+Linux global input uses X11. It works in X11 sessions and with compatible
+XWayland applications. Native Wayland compositors can restrict global hooks
+and injected keystrokes, so a full Wayland session is not guaranteed.
+
+KeyShift does not currently run on:
 
 ```text
-macOS
-Linux
 Android
 iOS
 ```
@@ -98,16 +99,17 @@ Before installing KeyShift, make sure the following software is available:
 - Node.js 18 or newer
 - npm
 
-Running the global shortcut host additionally requires:
+Platform requirements:
 
-- Windows 10 or Windows 11
-- .NET Framework 4.x runtime
+- Windows: .NET Framework 4.x runtime
+- macOS: grant Accessibility permission to the terminal/Node process
+- Linux X11: `xclip` or `xsel`
+- Linux Wayland clipboard: `wl-clipboard`; global input still depends on
+  X11/XWayland compatibility
 
-The npm package includes a compiled Windows native host. macOS and Linux do
-not need PowerShell or .NET to install the package.
-
-The .NET Framework compiler is required only when building KeyShift from
-source.
+The npm package includes the Windows executable and prebuilt macOS/Linux
+global-input bindings. The .NET Framework compiler is required only when
+building the Windows host from source.
 
 ---
 
@@ -118,6 +120,16 @@ Install KeyShift globally:
 ```bash
 npm install -g keyshift
 ```
+
+On Ubuntu/Debian X11, install a clipboard helper:
+
+```bash
+sudo apt-get install xclip
+```
+
+On Wayland, install `wl-clipboard` as well. For macOS, allow the terminal or
+Node.js under **System Settings > Privacy & Security > Accessibility** so
+KeyShift can observe the shortcut and send copy/paste keystrokes.
 
 Initialize the default configuration:
 
@@ -130,10 +142,6 @@ Start KeyShift:
 ```bash
 keyshift start
 ```
-
-`keyshift start` requires Windows. On macOS and Linux, the CLI remains
-available for configuration and inspection, but the native shortcut host
-cannot run yet.
 
 Check its status:
 
@@ -187,9 +195,9 @@ Control+Alt+K
 
 ---
 
-## Installed keyboard layouts
+## Keyboard layouts
 
-To display the keyboard layouts currently installed on Windows:
+Display the layouts available to KeyShift:
 
 ```bash
 keyshift layouts
@@ -198,12 +206,24 @@ keyshift layouts
 Example output:
 
 ```text
+Supported portable keyboard layouts:
+
+en-US  English (US)
+fa-IR  Persian (ISIRI 9147)
+```
+
+On Windows, `keyshift layouts` instead lists the layouts installed in the
+current Windows session, for example:
+
+```text
 00000409     English (United States)
 00000429     Persian [active]
 0000041F     Turkish (Turkey)
 ```
 
-Use these layout IDs when configuring `sourceLayout` and `targetLayout`.
+Use these IDs when configuring `sourceLayout` and `targetLayout`. Portable
+aliases include `en`, `us`, `00000409`, `fa`, `ir`, `persian`, `00000429`
+and `00050429`.
 
 Common Windows keyboard layout identifiers include:
 
@@ -326,7 +346,8 @@ stopped
 keyshift layouts
 ```
 
-Displays keyboard layouts available to the current Windows session.
+Displays installed Windows layouts on Windows, or the supported portable
+layouts on macOS and Linux.
 
 ---
 
@@ -336,11 +357,9 @@ Displays keyboard layouts available to the current Windows session.
 keyshift logs
 ```
 
-The log file is stored at:
+The log file is stored under the platform application-data directory.
 
-```text
-%APPDATA%\keyshift\keyshift.log
-```
+Run `keyshift init` to print the exact directory.
 
 ---
 
@@ -392,8 +411,9 @@ keyshift update-host
 keyshift start
 ```
 
-Use this command after upgrading KeyShift or replacing the packaged native
-host.
+Use this command after upgrading KeyShift or replacing the packaged Windows
+host. On macOS and Linux the portable host is part of the installed package,
+so no separate host copy is needed.
 
 The host cannot be replaced while `keyshift-host.exe` is running because
 Windows locks executable files that are currently in use.
@@ -402,11 +422,9 @@ Windows locks executable files that are currently in use.
 
 ## Configuration
 
-KeyShift configuration is stored at:
-
-```text
-%APPDATA%\keyshift\config.json
-```
+KeyShift configuration is stored in `%APPDATA%\keyshift` on Windows,
+`~/Library/Application Support/keyshift` on macOS, and
+`${XDG_CONFIG_HOME:-~/.config}/keyshift` on Linux.
 
 Default configuration:
 
@@ -684,17 +702,17 @@ When the shortcut is pressed, KeyShift performs these steps:
 
 1. Waits for the physical shortcut keys to be released.
 2. Focuses on the currently active application.
-3. Optionally sends `Ctrl+A`.
-4. Sends `Ctrl+C`.
-5. Reads the selected Unicode text from the Windows clipboard.
+3. Optionally sends `Ctrl+A` (`Command+A` on macOS).
+4. Sends the platform copy shortcut.
+5. Reads the selected Unicode text from the platform clipboard.
 6. Determines the source and target keyboard layouts.
 7. Maps each character back to its physical virtual key.
 8. Resolves the corresponding character in the target layout.
 9. Writes the converted value to the clipboard.
-10. Sends `Ctrl+V`.
+10. Sends the platform paste shortcut.
 11. Optionally restores the previous clipboard text.
 
-The native host uses Windows APIs including:
+The Windows native host uses APIs including:
 
 ```text
 GetKeyboardLayout
@@ -707,8 +725,10 @@ SendInput
 SetWindowsHookEx
 ```
 
-The TypeScript CLI manages configuration, process lifecycle, logs and native
-host installation.
+The macOS/Linux host uses `uiohook-napi` for the global shortcut and key
+injection, plus `pbcopy`/`pbpaste`, `wl-clipboard`, `xclip`, or `xsel` for
+clipboard access. The TypeScript CLI manages configuration, process lifecycle,
+logs and host selection.
 
 ---
 
@@ -717,7 +737,9 @@ host installation.
 KeyShift stores its runtime files in:
 
 ```text
-%APPDATA%\keyshift
+Windows: %APPDATA%\keyshift
+macOS:   ~/Library/Application Support/keyshift
+Linux:   ${XDG_CONFIG_HOME:-~/.config}/keyshift
 ```
 
 The directory contains:
@@ -729,29 +751,8 @@ keyshift.log
 keyshift.pid
 ```
 
-### Configuration
-
-```text
-%APPDATA%\keyshift\config.json
-```
-
-### Installed native host
-
-```text
-%APPDATA%\keyshift\keyshift-host.exe
-```
-
-### Logs
-
-```text
-%APPDATA%\keyshift\keyshift.log
-```
-
-### Process ID
-
-```text
-%APPDATA%\keyshift\keyshift.pid
-```
+`keyshift-host.exe` exists only on Windows. The portable host runs from the
+installed npm package.
 
 ---
 

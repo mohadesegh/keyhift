@@ -1,7 +1,7 @@
 {
 	"name": "keyshift",
 	"version": "1.1.1",
-	"description": "Fix text typed with the wrong Windows keyboard layout using a global shortcut.",
+	"description": "Fix text typed with the wrong keyboard layout using a global shortcut on Windows, macOS and Linux.",
 	"author": {
 		"name": "Mohadese Ghadimi",
 		"url": "https://github.com/mohadesegh"
@@ -35,7 +35,8 @@
 		"build": "npm run clean && npm run build:ts && npm run build:host",
 		"prepack": "npm run build",
 		"start": "node ./dist/cli.js start",
-		"stop": "node ./dist/cli.js stop"
+		"stop": "node ./dist/cli.js stop",
+		"test": "npm run build:ts && node ./scripts/test-portable.js"
 	},
 	"keywords": [
 		"keyboard-layout",
@@ -44,6 +45,8 @@
 		"persian-keyboard",
 		"farsi-keyboard",
 		"windows",
+		"macos",
+		"linux",
 		"global-hotkey",
 		"keyboard-converter",
 		"qwerty",
@@ -57,5 +60,8 @@
 	"devDependencies": {
 		"@types/node": "^22.0.0",
 		"typescript": "^5.8.0"
+	},
+	"dependencies": {
+		"uiohook-napi": "^1.5.5"
 	}
 }

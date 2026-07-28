@@ -18,6 +18,10 @@ import {
 	pidPath,
 	saveConfig,
 } from "./config.js";
+import {
+	formatPortableLayouts,
+	normalizePortableLayoutId,
+} from "./portable-layouts.js";
 
 import type {
 	DirectionDetection,
@@ -36,6 +40,7 @@ const packagedHostExePath = path.join(
 const hostSourcePath = path.join(packageRoot, "native", "KeyShiftHost.cs");
 
 const installedHostExePath = path.join(appDir, "keyshift-host.exe");
+const portableHostPath = path.join(packageRoot, "dist", "portable-host.js");
 
 function requireWindows(command: string): void {
 	if (process.platform === "win32") {
@@ -43,9 +48,7 @@ function requireWindows(command: string): void {
 	}
 
 	throw new Error(
-		`${command} requires Windows 10 or Windows 11. ` +
-			"The KeyShift CLI can be installed on macOS and Linux, but the " +
-			"global shortcut host currently uses Windows APIs.",
+		`${command} requires Windows 10 or Windows 11.`,
 	);
 }
 
@@ -136,9 +139,15 @@ function parseNumber(key: string, value: string): number {
 	return parsed;
 }
 async function installNativeHost(force = false): Promise<void> {
-	requireWindows("Updating the native host");
-
 	await ensureAppDir();
+
+	if (process.platform !== "win32") {
+		if (!existsSync(portableHostPath)) {
+			throw new Error(`Portable host not found: ${portableHostPath}`);
+		}
+
+		return;
+	}
 
 	if (existsSync(installedHostExePath) && !force) {
 		return;
@@ -166,6 +175,10 @@ async function installNativeHost(force = false): Promise<void> {
 }
 
 function normalizeLayoutId(value: string): string {
+	if (process.platform !== "win32") {
+		return normalizePortableLayoutId(value);
+	}
+
 	const normalized = value.trim().replace(/^0x/i, "").toUpperCase();
 
 	if (!/^[0-9A-F]{4,8}$/.test(normalized)) {
@@ -388,8 +401,6 @@ async function isRunning(): Promise<boolean> {
 }
 
 async function start(): Promise<void> {
-	requireWindows("Starting KeyShift");
-
 	await ensureAppDir();
 
 	if (await isRunning()) {
@@ -402,9 +413,28 @@ async function start(): Promise<void> {
 	}
 
 	await rm(logPath, { force: true });
-	await ensureNativeHost();
+	let executablePath: string;
+	let hostArguments: string[];
 
-	const child = spawn(installedHostExePath, ["--run", configPath, logPath], {
+	if (process.platform === "win32") {
+		await ensureNativeHost();
+		executablePath = installedHostExePath;
+		hostArguments = ["--run", configPath, logPath];
+	} else {
+		if (!existsSync(portableHostPath)) {
+			throw new Error(`Portable host not found: ${portableHostPath}`);
+		}
+
+		executablePath = process.execPath;
+		hostArguments = [
+			portableHostPath,
+			"--run",
+			configPath,
+			logPath,
+		];
+	}
+
+	const child = spawn(executablePath, hostArguments, {
 		detached: true,
 		stdio: "ignore",
 		windowsHide: true,
@@ -494,7 +524,11 @@ async function restart(): Promise<void> {
 }
 
 async function showLayouts(): Promise<void> {
-	requireWindows("Keyboard layout discovery");
+	if (process.platform !== "win32") {
+		console.log("Supported portable keyboard layouts:\n");
+		console.log(formatPortableLayouts());
+		return;
+	}
 
 	await ensureNativeHost();
 
@@ -563,7 +597,11 @@ async function main(): Promise<void> {
       
 		case "update-host":
 			await installNativeHost(true);
-			console.log("KeyShift native host updated.");
+			console.log(
+				process.platform === "win32"
+					? "KeyShift native host updated."
+					: "KeyShift portable host is included with the installed package.",
+			);
 			break;
 
 		case "logs":

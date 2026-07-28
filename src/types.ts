@@ -10,7 +10,8 @@ export interface KeyShiftConfig {
 
   /**
    * auto:
-   * Direction is detected from the text and active Windows layout.
+   * Direction is detected from the text and, where available, the active
+   * keyboard layout.
    *
    * pair:
    * Conversion always runs from sourceLayout to targetLayout.
@@ -18,9 +19,11 @@ export interface KeyShiftConfig {
   layoutMode: LayoutMode;
 
   /**
-   * Windows keyboard layout identifier, for example:
+   * Windows uses keyboard layout identifiers, for example:
    * 00000409 = English US
    * 00000429 = Persian
+   *
+   * macOS and Linux use portable layout IDs such as en-US and fa-IR.
    */
   sourceLayout: string;
   targetLayout: string;
