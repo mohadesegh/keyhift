@@ -4,15 +4,15 @@
 	"description": "Fix text typed with the wrong keyboard layout using a global shortcut on Windows, macOS and Linux.",
 	"author": {
 		"name": "Mohadese Ghadimi",
-		"url": "https://github.com/mohadesegh"
+		"url": "https://github.com/mohadesegh/"
 	},
-	"homepage": "https://github.com/mohadesegh/keyshift#readme",
+	"homepage": "https://github.com/mohadesegh/keyhift#readme",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/mohadesegh/keyshift.git"
+		"url": "git+https://github.com/mohadesegh/keyhift.git"
 	},
 	"bugs": {
-		"url": "https://github.com/mohadesegh/keyshift/issues"
+		"url": "https://github.com/mohadesegh/keyhift/issues"
 	},
 	"type": "commonjs",
 	"main": "./dist/cli.js",
