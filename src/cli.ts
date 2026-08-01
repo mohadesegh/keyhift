@@ -88,7 +88,7 @@ Examples:
 
   keyshift layouts
 
-  keyshift config set shortcut Control+Alt+K
+  keyshift config set shortcut ${defaultConfig.shortcut}
   keyshift config set layoutMode auto
   keyshift config set sourceLayout 00000409
   keyshift config set targetLayout 00000429

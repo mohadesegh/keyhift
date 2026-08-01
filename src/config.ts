@@ -24,8 +24,22 @@ export const configPath = path.join(appDir, "config.json");
 export const pidPath = path.join(appDir, "keyshift.pid");
 export const logPath = path.join(appDir, "keyshift.log");
 
+export function getDefaultShortcut(
+  platform: NodeJS.Platform = process.platform
+): string {
+  if (platform === "darwin") {
+    return "Command+Shift+K";
+  }
+
+  if (platform === "linux") {
+    return "Control+Shift+K";
+  }
+
+  return "Control+Alt+K";
+}
+
 export const defaultConfig: KeyShiftConfig = {
-  shortcut: "Control+Alt+K",
+  shortcut: getDefaultShortcut(),
 
   layoutMode: "auto",
 

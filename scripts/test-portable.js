@@ -3,6 +3,11 @@ const {
 	convertPortableText,
 	normalizePortableLayoutId,
 } = require("../dist/portable-layouts.js");
+const { getDefaultShortcut } = require("../dist/config.js");
+
+assert.equal(getDefaultShortcut("win32"), "Control+Alt+K");
+assert.equal(getDefaultShortcut("darwin"), "Command+Shift+K");
+assert.equal(getDefaultShortcut("linux"), "Control+Shift+K");
 
 assert.equal(normalizePortableLayoutId("00000409"), "en-US");
 assert.equal(normalizePortableLayoutId("persian"), "fa-IR");

@@ -11,16 +11,10 @@ import {
 import { convertPortableText } from "./portable-layouts.js";
 import type { KeyShiftConfig } from "./types.js";
 
-interface ClipboardCommands {
+interface ClipboardProvider {
 	name: string;
-	read: {
-		command: string;
-		args: string[];
-	};
-	write: {
-		command: string;
-		args: string[];
-	};
+	read(): string;
+	write(value: string): void;
 }
 
 interface Shortcut {
@@ -49,13 +43,27 @@ function commandExists(command: string): boolean {
 	return result.status === 0;
 }
 
-function resolveClipboardCommands(): ClipboardCommands {
+function createCommandClipboard(
+	name: string,
+	read: { command: string; args: string[] },
+	write: { command: string; args: string[] },
+): ClipboardProvider {
+	return {
+		name,
+		read: () => runClipboardCommand(read),
+		write: (value) => {
+			runClipboardCommand(write, value);
+		},
+	};
+}
+
+async function resolveClipboardProvider(): Promise<ClipboardProvider> {
 	if (process.platform === "darwin") {
-		return {
-			name: "macOS pasteboard",
-			read: { command: "pbpaste", args: [] },
-			write: { command: "pbcopy", args: [] },
-		};
+		return createCommandClipboard(
+			"macOS pasteboard",
+			{ command: "pbpaste", args: [] },
+			{ command: "pbcopy", args: [] },
+		);
 	}
 
 	if (process.platform !== "linux") {
@@ -69,50 +77,69 @@ function resolveClipboardCommands(): ClipboardCommands {
 		commandExists("wl-copy") &&
 		commandExists("wl-paste")
 	) {
-		return {
-			name: "Wayland clipboard",
-			read: {
+		return createCommandClipboard(
+			"Wayland clipboard",
+			{
 				command: "wl-paste",
 				args: ["--no-newline", "--type", "text"],
 			},
-			write: { command: "wl-copy", args: ["--type", "text/plain"] },
-		};
+			{ command: "wl-copy", args: ["--type", "text/plain"] },
+		);
 	}
 
 	if (commandExists("xclip")) {
-		return {
-			name: "X11 clipboard (xclip)",
-			read: {
+		return createCommandClipboard(
+			"X11 clipboard (xclip)",
+			{
 				command: "xclip",
 				args: ["-selection", "clipboard", "-out"],
 			},
-			write: {
+			{
 				command: "xclip",
 				args: ["-selection", "clipboard", "-in"],
 			},
-		};
+		);
 	}
 
 	if (commandExists("xsel")) {
-		return {
-			name: "X11 clipboard (xsel)",
-			read: {
+		return createCommandClipboard(
+			"X11 clipboard (xsel)",
+			{
 				command: "xsel",
 				args: ["--clipboard", "--output"],
 			},
-			write: {
+			{
 				command: "xsel",
 				args: ["--clipboard", "--input"],
 			},
-		};
+		);
 	}
 
-	throw new Error(
-		[
-			"No supported Linux clipboard tool was found.",
-			"Install `wl-clipboard` on Wayland or `xclip`/`xsel` on X11.",
-		].join(" "),
-	);
+	try {
+		const clipboardy = (await import("clipboardy")).default;
+
+		// Probe once during startup so display/permission failures are reported
+		// by `keyshift start`, not only after the first shortcut press.
+		clipboardy.readSync();
+
+		return {
+			name: "bundled Linux clipboard fallback",
+			read: () => clipboardy.readSync(),
+			write: (value) => clipboardy.writeSync(value),
+		};
+	} catch (error: unknown) {
+		const details = error instanceof Error ? error.message : String(error);
+		throw new Error(
+			[
+				"Unable to access the Linux clipboard.",
+				"The bundled X11 fallback could not connect to a display.",
+				process.env.WAYLAND_DISPLAY
+					? "For native Wayland, install `wl-clipboard`."
+					: "Make sure an X11 display is active.",
+				`Details: ${details}`,
+			].join(" "),
+		);
+	}
 }
 
 function runClipboardCommand(
@@ -142,17 +169,6 @@ function runClipboardCommand(
 	}
 
 	return result.stdout ?? "";
-}
-
-function readClipboard(commands: ClipboardCommands): string {
-	return runClipboardCommand(commands.read);
-}
-
-function writeClipboard(
-	commands: ClipboardCommands,
-	value: string,
-): void {
-	runClipboardCommand(commands.write, value);
 }
 
 function normalizeShortcutKey(value: string): string {
@@ -258,14 +274,14 @@ function tapEndOfText(): void {
 }
 
 async function waitForClipboardText(
-	clipboard: ClipboardCommands,
+	clipboard: ClipboardProvider,
 	sentinel: string,
 	timeoutMs: number,
 ): Promise<string> {
 	const startedAt = Date.now();
 
 	while (Date.now() - startedAt < timeoutMs) {
-		const value = readClipboard(clipboard);
+		const value = clipboard.read();
 
 		if (value && value !== sentinel) {
 			return value;
@@ -303,10 +319,10 @@ async function waitForShortcutRelease(
 
 async function convertFocusedText(
 	config: KeyShiftConfig,
-	clipboard: ClipboardCommands,
+	clipboard: ClipboardProvider,
 ): Promise<void> {
 	const previousClipboard = config.preserveClipboard
-		? readClipboard(clipboard)
+		? clipboard.read()
 		: undefined;
 	const sentinel = `keyshift:${process.pid}:${Date.now()}`;
 	let restored = false;
@@ -316,13 +332,13 @@ async function convertFocusedText(
 			return;
 		}
 
-		writeClipboard(clipboard, previousClipboard);
+		clipboard.write(previousClipboard);
 		restored = true;
 		await log("Clipboard restored.");
 	};
 
 	try {
-		writeClipboard(clipboard, sentinel);
+		clipboard.write(sentinel);
 
 		if (config.selectAllText) {
 			tapApplicationShortcut(UiohookKey.A);
@@ -343,7 +359,7 @@ async function convertFocusedText(
 			}
 
 			if (previousClipboard === undefined) {
-				writeClipboard(clipboard, "");
+				clipboard.write("");
 			}
 
 			await log("Shortcut fired, but no editable or selected text was copied.");
@@ -367,7 +383,7 @@ async function convertFocusedText(
 			`Converting ${conversion.source} -> ${conversion.target}. ` +
 				`InputLength=${selectedText.length}, OutputLength=${conversion.text.length}`,
 		);
-		writeClipboard(clipboard, conversion.text);
+		clipboard.write(conversion.text);
 		await delay(Math.max(config.pasteDelayMs, 120));
 		tapApplicationShortcut(UiohookKey.V);
 		await delay(Math.max(config.pasteDelayMs, 250));
@@ -393,7 +409,7 @@ async function run(): Promise<void> {
 		await readFile(configPath, "utf8"),
 	) as KeyShiftConfig;
 	const shortcut = parseShortcut(config.shortcut);
-	const clipboard = resolveClipboardCommands();
+	const clipboard = await resolveClipboardProvider();
 	const pressedKeys = new Set<number>();
 	let shortcutWasDown = false;
 	let converting = false;
