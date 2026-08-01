@@ -1,0 +1,67 @@
+name: Cross-platform integration
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "codex/**"]
+
+jobs:
+  integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+      - run: npm pack
+
+      - name: Install packed CLI
+        shell: bash
+        run: |
+          archive="$(ls keyshift-*.tgz)"
+          npm install --global --prefix "$RUNNER_TEMP/keyshift-prefix" "./$archive"
+
+      - name: Install Linux integration dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xclip xdotool xterm
+
+      - name: Linux X11 conversion
+        if: runner.os == 'Linux'
+        shell: bash
+        run: xvfb-run -a bash scripts/test-linux-x11.sh "$RUNNER_TEMP/keyshift-prefix/bin/keyshift"
+
+      - name: macOS conversion
+        if: runner.os == 'macOS'
+        shell: bash
+        run: bash scripts/test-macos.sh "$RUNNER_TEMP/keyshift-prefix/bin/keyshift"
+
+      - name: Windows conversion
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./scripts/test-windows-shortcut.ps1 -KeyShiftCommand "$env:RUNNER_TEMP\keyshift-prefix\keyshift.cmd"
+
+      - name: Print KeyShift logs
+        if: failure()
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            log_path="$APPDATA/keyshift/keyshift.log"
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            log_path="$HOME/Library/Application Support/keyshift/keyshift.log"
+          else
+            log_path="${XDG_CONFIG_HOME:-$HOME/.config}/keyshift/keyshift.log"
+          fi
+          [[ -f "$log_path" ]] && cat "$log_path" || true
