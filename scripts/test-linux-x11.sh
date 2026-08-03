@@ -35,7 +35,18 @@ focused_window_id="$(xdotool getwindowfocus)"
   exit 1
 }
 xdotool type --delay 80 sghl
-xdotool key ctrl+shift+k
+sleep 0.2
+xdotool keydown ctrl
+sleep 0.1
+xdotool keydown shift
+sleep 0.1
+xdotool keydown k
+sleep 0.1
+xdotool keyup k
+sleep 0.1
+xdotool keyup shift
+sleep 0.1
+xdotool keyup ctrl
 
 active_layout=""
 for _ in {1..150}; do
