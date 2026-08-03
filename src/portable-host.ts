@@ -162,10 +162,16 @@ function runClipboardCommand(
 	},
 	input?: string,
 ): string {
+	// X11 clipboard tools fork a background selection owner after a write.
+	// Capturing its stdout/stderr keeps Node's pipes open and makes spawnSync
+	// wait forever, so write operations must not use captured output streams.
 	const result = spawnSync(specification.command, specification.args, {
 		encoding: "utf8",
 		input,
 		maxBuffer: 16 * 1024 * 1024,
+		stdio: input === undefined
+			? ["ignore", "pipe", "pipe"]
+			: ["pipe", "ignore", "ignore"],
 	});
 
 	if (result.error) {

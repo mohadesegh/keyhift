@@ -69,7 +69,7 @@ done
 "$keyshift_command" stop
 sleep 0.5
 setxkbmap -layout us
-printf 'sghl' | xclip -selection clipboard -in
+printf 'sghl' | xclip -selection clipboard -in >/dev/null 2>&1
 "$keyshift_command" convert-clipboard
 
 active_layout=""
