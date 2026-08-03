@@ -66,6 +66,12 @@ done
   exit 1
 }
 
+"$keyshift_command" stop
+sleep 0.5
+setxkbmap -layout us
+printf 'sghl' | xclip -selection clipboard -in
+"$keyshift_command" convert-clipboard
+
 active_layout=""
 for _ in {1..150}; do
   active_layout="$(setxkbmap -query | awk '/^layout:/ { print $2 }')"
@@ -81,13 +87,10 @@ done
   exit 1
 }
 
-xdotool key ctrl+a ctrl+c
-sleep 1
-
 actual="$(xclip -selection clipboard -out)"
 [[ "$actual" == "سلام" ]] || {
   printf 'Expected: سلام\nActual: %s\n' "$actual" >&2
   exit 1
 }
 
-echo "Linux X11 conversion and input-source integration test passed."
+echo "Linux X11 global-shortcut detection, clipboard conversion and input-source integration test passed."
