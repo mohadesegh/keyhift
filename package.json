@@ -1,7 +1,7 @@
 {
 	"name": "keyshift",
-	"version": "1.1.3",
-	"description": "Fix text typed with the wrong keyboard layout using a global shortcut on Windows, macOS and Linux.",
+	"version": "1.1.4",
+	"description": "Fix text typed with the wrong keyboard layout using a global shortcut on Windows, macOS and Linux X11.",
 	"author": {
 		"name": "Mohadese Ghadimi",
 		"url": "https://github.com/mohadesegh/"
@@ -17,7 +17,7 @@
 	"type": "commonjs",
 	"main": "./dist/cli.js",
 	"bin": {
-		"keyshift": "./dist/cli.js"
+		"keyshift": "dist/cli.js"
 	},
 	"files": [
 		"dist",
@@ -34,6 +34,8 @@
 		"build:host": "node ./scripts/build-host.js",
 		"build": "npm run clean && npm run build:ts && npm run build:host",
 		"prepack": "npm run build",
+		"prepublishOnly": "npm test && npm run build && node ./scripts/verify-release.js",
+		"release:check": "npm test && npm run build && node ./scripts/verify-release.js",
 		"start": "node ./dist/cli.js start",
 		"stop": "node ./dist/cli.js stop",
 		"test": "npm run build:ts && node ./scripts/test-portable.js"

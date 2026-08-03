@@ -57,6 +57,7 @@ ISIRI 9147 conversion pair.
 - Convert the complete focused text field
 - Convert only selected text
 - Configurable copy and paste delays
+- Clipboard-only fallback for restricted desktop sessions
 - Native Windows host and portable macOS/Linux host
 - CLI-based configuration
 - Lightweight installation
@@ -130,6 +131,33 @@ sudo apt-get install xclip
 On Wayland, install `wl-clipboard` as well. For macOS, allow the terminal or
 Node.js under **System Settings > Privacy & Security > Accessibility** so
 KeyShift can observe the shortcut and send copy/paste keystrokes.
+
+After a successful macOS/Linux shortcut conversion, KeyShift also triggers
+the configured system input-language shortcut. Defaults are `Control+Space`
+on macOS and `Meta+Space` on Linux. If your desktop uses another shortcut,
+configure it and restart KeyShift:
+
+```bash
+keyshift config set languageSwitchShortcut Alt+Shift
+keyshift restart
+```
+
+Disable this behavior with:
+
+```bash
+keyshift config set switchInputLanguage false
+```
+
+If the desktop blocks global input (for example, a native Wayland session),
+copy the text and run this command to convert the clipboard directly:
+
+```bash
+keyshift convert-clipboard
+```
+
+Paste the converted text normally. This fallback also helps verify that the
+installed macOS/Linux package, layout conversion and clipboard backend work
+before troubleshooting global-input permissions.
 
 Initialize the default configuration:
 
@@ -348,6 +376,18 @@ keyshift layouts
 
 Displays installed Windows layouts on Windows, or the supported portable
 layouts on macOS and Linux.
+
+---
+
+### Convert clipboard text
+
+```bash
+keyshift convert-clipboard
+```
+
+Converts the current clipboard contents using the configured portable layout
+pair. This command is available on macOS and Linux and does not require a
+global keyboard hook.
 
 ---
 
@@ -954,8 +994,9 @@ keyshift start
 
 ## Limitations
 
-KeyShift is designed for standard Windows keyboard layouts that map physical
-keys to Unicode characters.
+KeyShift is designed for standard keyboard layouts that map physical keys to
+Unicode characters. Windows resolves installed layouts dynamically; the
+portable macOS/Linux host currently supports English (US) and Persian.
 
 The following cases may not convert completely:
 
@@ -979,9 +1020,9 @@ Those mappings depend on Windows and the installed keyboard layout.
 
 KeyShift does not send copied text to a server.
 
-Text conversion happens locally on the Windows machine.
+Text conversion happens locally on the device.
 
-KeyShift temporarily uses the Windows clipboard to copy, convert and paste
+KeyShift temporarily uses the platform clipboard to copy, convert and paste
 text.
 
 Sensitive text should not be converted in password fields or protected input
@@ -1098,7 +1139,7 @@ Install the generated archive globally:
 
 ```bash
 npm uninstall -g keyshift
-npm install -g ./keyshift-1.1.0.tgz
+npm install -g ./keyshift-1.1.4.tgz
 ```
 
 Test:
@@ -1110,39 +1151,34 @@ keyshift start
 keyshift status
 ```
 
+Run the release guard:
+
+```bash
+npm run release:check
+```
+
+The cross-platform workflow must also pass Windows, Linux X11 and the packaged
+macOS checks. Because hosted macOS runners cannot grant Accessibility access,
+run the real global-shortcut test once on a Mac before release:
+
+```bash
+KEYSHIFT_TEST_GLOBAL_INPUT=1 bash scripts/test-macos.sh "$(command -v keyshift)"
+```
+
 ---
 
 ## Publishing
 
-Log in to npm:
+Use the **Release npm package** GitHub Actions workflow. First run it with
+`dry_run` enabled. For a real release, confirm the native macOS global test,
+set `dry_run` to false, and enter the exact version from `package.json`.
 
-```bash
-npm login
-```
-
-Verify the current user:
-
-```bash
-npm whoami
-```
-
-Inspect package contents:
-
-```bash
-npm pack --dry-run
-```
-
-Publish:
-
-```bash
-npm publish
-```
-
-When npm requires two-factor authentication:
-
-```bash
-npm publish --otp=123456
-```
+The workflow blocks publication unless the cross-platform integration matrix
+passes. `prepublishOnly` also rebuilds, retests, checks that the version is not
+already present on npm, verifies the tarball contents, and requires the release
+approval environment variable. Configure the `npm-publish` GitHub environment
+and either npm trusted publishing or the `NPM_TOKEN` repository secret before
+the first release.
 
 ---
 
@@ -1270,8 +1306,8 @@ Before submitting a pull request:
 2. Keep changes focused.
 3. Build the TypeScript CLI.
 4. Build the native Windows host.
-5. Test installation through `npm pack`.
-6. Test conversion in Windows Notepad.
+5. Run `npm run release:check` and test installation through `npm pack`.
+6. Test conversion on every affected operating system.
 7. Include a clear explanation of the change.
 
 Suggested workflow:

@@ -1,17 +1,39 @@
+# Dependencies and generated build output
 node_modules/
 dist/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+.eslintcache
 
+# Package archives and logs
 *.log
 *.tgz
-.codegraph
+
+# Local indexes and caches
+.codegraph/
+.cache/
+.tmp/
+tmp/
+
+# Python test artifacts
+__pycache__/
+*.py[cod]
+
+# OS metadata
 .DS_Store
 Thumbs.db
 
+# Editor settings
 .vscode/
 .idea/
 
+# Local secrets and environment overrides
 .env
 .env.*
+!.env.example
+.npmrc
 
+# Native debug artifacts (the release .exe is intentionally tracked)
 native/*.pdb
-package-lock.json
+native/*.ilk
