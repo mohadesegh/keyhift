@@ -24,7 +24,16 @@ done
 
 [[ -n "${window_id:-}" ]] || { echo "X11 test window was not found." >&2; exit 1; }
 
-xdotool windowactivate --sync "$window_id"
+# Direct X11 focus works under Xvfb even when no EWMH-compatible window
+# manager is running. `windowactivate` depends on _NET_ACTIVE_WINDOW and
+# therefore fails on GitHub's bare Xvfb display.
+xdotool windowfocus --sync "$window_id"
+focused_window_id="$(xdotool getwindowfocus)"
+[[ "$focused_window_id" == "$window_id" ]] || {
+  printf 'Unable to focus X11 test window. Expected: %s, Actual: %s\n' \
+    "$window_id" "$focused_window_id" >&2
+  exit 1
+}
 xdotool type --delay 80 sghl
 xdotool key ctrl+shift+k
 sleep 4
