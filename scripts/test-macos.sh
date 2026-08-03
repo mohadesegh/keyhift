@@ -12,14 +12,6 @@ trap cleanup EXIT
 "$keyshift_command" init
 
 if [[ "${KEYSHIFT_TEST_GLOBAL_INPUT:-0}" != "1" ]]; then
-  selected_source="$(
-    osascript -l JavaScript scripts/macos-select-input-source.jxa en-US
-  )"
-  [[ -n "$selected_source" ]] || {
-    echo "macOS input-source helper did not select an English source." >&2
-    exit 1
-  }
-
   "$keyshift_command" config set switchInputLanguage false
   printf 'sghl' | pbcopy
   "$keyshift_command" convert-clipboard
@@ -29,8 +21,8 @@ if [[ "${KEYSHIFT_TEST_GLOBAL_INPUT:-0}" != "1" ]]; then
     exit 1
   }
 
-  echo "macOS input-source helper and installed-package clipboard conversion passed."
-  echo "Global shortcut and direct input-source selection require Accessibility and an installed Persian source, so they are skipped on hosted runners."
+  echo "macOS installed-package clipboard conversion passed."
+  echo "Global shortcut and input-source switching require Accessibility and an installed Persian source, so they are skipped on hosted runners."
   exit 0
 fi
 

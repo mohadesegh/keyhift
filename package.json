@@ -25,7 +25,6 @@
 		"native/KeyShiftHost.cs",
 		"scripts/build-host.js",
 		"scripts/build-host.ps1",
-		"scripts/macos-select-input-source.jxa",
 		"README.md",
 		"LICENSE"
 	],

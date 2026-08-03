@@ -74,7 +74,6 @@ const requiredFiles = [
 	"dist/portable-host.js",
 	"dist/portable-layouts.js",
 	"native/keyshift-host.exe",
-	"scripts/macos-select-input-source.jxa",
 ];
 
 for (const requiredFile of requiredFiles) {

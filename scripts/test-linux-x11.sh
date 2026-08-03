@@ -10,7 +10,7 @@ cleanup() {
 trap cleanup EXIT
 
 "$keyshift_command" init
-setxkbmap -layout us,ir
+setxkbmap -layout us
 "$keyshift_command" start
 
 python3 scripts/linux-x11-target.py &
@@ -37,7 +37,7 @@ actual="$(xclip -selection clipboard -out)"
   exit 1
 }
 
-active_layout="$(xkb-switch -p)"
+active_layout="$(setxkbmap -query | awk '/^layout:/ { print $2 }')"
 [[ "$active_layout" == "ir" ]] || {
   printf 'Expected active layout: ir\nActual active layout: %s\n' "$active_layout" >&2
   exit 1

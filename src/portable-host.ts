@@ -2,7 +2,6 @@
 
 import { spawnSync } from "node:child_process";
 import { appendFile, readFile } from "node:fs/promises";
-import path from "node:path";
 import {
 	uIOhook,
 	UiohookKey,
@@ -32,12 +31,6 @@ interface Shortcut {
 }
 
 const [, , action, configPath, logPath] = process.argv;
-const macInputSourceScript = path.resolve(
-	__dirname,
-	"..",
-	"scripts",
-	"macos-select-input-source.jxa",
-);
 
 function delay(milliseconds: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -313,21 +306,8 @@ function tapEndOfText(): void {
 
 async function trySelectInputSource(layoutId: string): Promise<string | undefined> {
 	if (process.platform === "darwin") {
-		const result = spawnSync(
-			"osascript",
-			["-l", "JavaScript", macInputSourceScript, layoutId],
-			{ encoding: "utf8", windowsHide: true },
-		);
-
-		if (result.status === 0) {
-			return `macOS input source ${result.stdout.trim() || layoutId}`;
-		}
-
-		await log(
-			`Direct macOS input-source selection failed: ${
-				result.stderr?.trim() || result.error?.message || `status ${result.status}`
-			}`,
-		);
+		// macOS does not expose a supported command-line API for selecting an
+		// input source. Use the user's configured system shortcut instead.
 		return undefined;
 	}
 
@@ -371,15 +351,15 @@ async function trySelectInputSource(layoutId: string): Promise<string | undefine
 		}
 	}
 
-	if (commandExists("xkb-switch")) {
+	if (commandExists("setxkbmap")) {
 		const selected = spawnSync(
-			"xkb-switch",
-			["-s", layoutCode],
+			"setxkbmap",
+			["-layout", layoutCode],
 			{ encoding: "utf8", windowsHide: true },
 		);
 
 		if (selected.status === 0) {
-			return `XKB input source ${layoutCode}`;
+			return `X11 keyboard layout ${layoutCode}`;
 		}
 	}
 
