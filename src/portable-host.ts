@@ -48,6 +48,14 @@ function commandExists(command: string): boolean {
 	return result.status === 0;
 }
 
+function isGnomeSession(): boolean {
+	return [
+		process.env.XDG_CURRENT_DESKTOP,
+		process.env.DESKTOP_SESSION,
+		process.env.GDMSESSION,
+	].some((value) => /(^|[:;_-])gnome($|[:;_-])/iu.test(value ?? ""));
+}
+
 function createCommandClipboard(
 	name: string,
 	read: { command: string; args: string[] },
@@ -321,7 +329,10 @@ async function trySelectInputSource(layoutId: string): Promise<string | undefine
 		return undefined;
 	}
 
-	if (commandExists("gsettings")) {
+	// `gsettings` is installed on many headless Linux images, but changing its
+	// input-source index only affects the keyboard when a GNOME session is
+	// actually running. Prefer setxkbmap on plain X11/Xvfb sessions.
+	if (isGnomeSession() && commandExists("gsettings")) {
 		const sources = spawnSync(
 			"gsettings",
 			["get", "org.gnome.desktop.input-sources", "sources"],
