@@ -49,6 +49,9 @@ actual="$(xclip -selection clipboard -out)"
 active_layout="$(setxkbmap -query | awk '/^layout:/ { print $2 }')"
 [[ "$active_layout" == "ir" ]] || {
   printf 'Expected active layout: ir\nActual active layout: %s\n' "$active_layout" >&2
+  printf 'Desktop session: XDG_CURRENT_DESKTOP=%s DESKTOP_SESSION=%s GDMSESSION=%s\n' \
+    "${XDG_CURRENT_DESKTOP:-}" "${DESKTOP_SESSION:-}" "${GDMSESSION:-}" >&2
+  "$keyshift_command" logs >&2 || true
   exit 1
 }
 
