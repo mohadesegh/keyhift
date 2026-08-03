@@ -610,6 +610,7 @@ async function run(): Promise<void> {
 
 		shortcutWasDown = true;
 		converting = true;
+		void log("Shortcut detected.");
 		void waitForShortcutRelease(pressedKeys, shortcut)
 			.then(() => convertFocusedText(config, clipboard))
 			.catch(async (error: unknown) => {

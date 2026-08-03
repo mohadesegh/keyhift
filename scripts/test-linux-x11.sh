@@ -36,17 +36,35 @@ focused_window_id="$(xdotool getwindowfocus)"
 }
 xdotool type --delay 80 sghl
 sleep 0.2
-xdotool keydown ctrl
-sleep 0.1
-xdotool keydown shift
-sleep 0.1
-xdotool keydown k
-sleep 0.1
-xdotool keyup k
-sleep 0.1
-xdotool keyup shift
-sleep 0.1
-xdotool keyup ctrl
+
+shortcut_detected="false"
+for _ in {1..5}; do
+  xdotool keydown ctrl
+  sleep 0.1
+  xdotool keydown shift
+  sleep 0.1
+  xdotool keydown k
+  sleep 0.1
+  xdotool keyup k
+  sleep 0.1
+  xdotool keyup shift
+  sleep 0.1
+  xdotool keyup ctrl
+
+  for _ in {1..20}; do
+    if "$keyshift_command" logs 2>/dev/null | grep -q 'Shortcut detected.'; then
+      shortcut_detected="true"
+      break 2
+    fi
+    sleep 0.1
+  done
+done
+
+[[ "$shortcut_detected" == "true" ]] || {
+  echo "The global shortcut was not detected after 5 attempts." >&2
+  "$keyshift_command" logs >&2 || true
+  exit 1
+}
 
 active_layout=""
 for _ in {1..150}; do
