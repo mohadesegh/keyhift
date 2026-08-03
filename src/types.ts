@@ -39,4 +39,10 @@ export interface KeyShiftConfig {
    * Set this to false to convert only the currently selected text.
    */
   selectAllText: boolean;
+
+  /** Switch the active input language after a successful portable conversion. */
+  switchInputLanguage: boolean;
+
+  /** Desktop shortcut used to move to the other configured input language. */
+  languageSwitchShortcut: string;
 }

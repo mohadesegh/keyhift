@@ -1,6 +1,7 @@
 name: Cross-platform integration
 
 on:
+  workflow_call:
   workflow_dispatch:
   push:
     branches: [main, "codex/**"]
@@ -15,9 +16,9 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -36,17 +37,39 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb xclip xdotool xterm
+          sudo apt-get install -y xauth xvfb xclip xdotool xkb-switch x11-xkb-utils python3-tk
 
       - name: Linux X11 conversion
         if: runner.os == 'Linux'
         shell: bash
-        run: xvfb-run -a bash scripts/test-linux-x11.sh "$RUNNER_TEMP/keyshift-prefix/bin/keyshift"
+        run: |
+          set +e
+          output="$(xvfb-run -a bash scripts/test-linux-x11.sh "$RUNNER_TEMP/keyshift-prefix/bin/keyshift" 2>&1)"
+          status=$?
+          echo "$output"
+          if [[ $status -ne 0 ]]; then
+            message="${output//'%'/'%25'}"
+            message="${message//$'\n'/'%0A'}"
+            message="${message//$'\r'/'%0D'}"
+            echo "::error title=Linux integration failure::$message"
+            exit "$status"
+          fi
 
       - name: macOS conversion
         if: runner.os == 'macOS'
         shell: bash
-        run: bash scripts/test-macos.sh "$RUNNER_TEMP/keyshift-prefix/bin/keyshift"
+        run: |
+          set +e
+          output="$(bash scripts/test-macos.sh "$RUNNER_TEMP/keyshift-prefix/bin/keyshift" 2>&1)"
+          status=$?
+          echo "$output"
+          if [[ $status -ne 0 ]]; then
+            message="${output//'%'/'%25'}"
+            message="${message//$'\n'/'%0A'}"
+            message="${message//$'\r'/'%0D'}"
+            echo "::error title=macOS integration failure::$message"
+            exit "$status"
+          fi
 
       - name: Windows conversion
         if: runner.os == 'Windows'

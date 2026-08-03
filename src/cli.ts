@@ -66,6 +66,7 @@ Commands:
   keyshift restart
   keyshift status
   keyshift layouts
+  keyshift convert-clipboard
   keyshift logs
   keyshift update-host
   keyshift config show
@@ -82,6 +83,8 @@ Configuration keys:
   copyDelayMs
   pasteDelayMs
   selectAllText
+  switchInputLanguage
+  languageSwitchShortcut
 
 Examples:
   keyshift init
@@ -227,6 +230,8 @@ async function setConfig(keyInput: string, rawValue: string): Promise<void> {
 		"copyDelayMs",
 		"pasteDelayMs",
 		"selectAllText",
+		"switchInputLanguage",
+		"languageSwitchShortcut",
 	];
 
 	if (!allowedKeys.includes(keyInput as keyof KeyShiftConfig)) {
@@ -254,6 +259,7 @@ async function setConfig(keyInput: string, rawValue: string): Promise<void> {
 
 		case "preserveClipboard":
 		case "selectAllText":
+		case "switchInputLanguage":
 			value = parseBoolean(key, rawValue);
 			break;
 
@@ -263,8 +269,9 @@ async function setConfig(keyInput: string, rawValue: string): Promise<void> {
 			break;
 
 		case "shortcut":
+		case "languageSwitchShortcut":
 			if (!rawValue.trim()) {
-				throw new Error("shortcut cannot be empty.");
+				throw new Error(`${key} cannot be empty.`);
 			}
 
 			value = rawValue.trim();
@@ -469,6 +476,29 @@ async function start(): Promise<void> {
 			// Keep fallback message.
 		}
 
+		if (
+			process.platform === "darwin" &&
+			/UIOHOOK_ERROR_AXAPI_DISABLED|assistive devices|Accessibility/u.test(details)
+		) {
+			details += [
+				"",
+				"KeyShift needs Accessibility access on macOS.",
+				"Open System Settings > Privacy & Security > Accessibility,",
+				"enable the terminal application and Node.js, then run `keyshift start` again.",
+			].join("\n");
+		}
+
+		if (
+			process.platform === "linux" &&
+			/UIOHOOK_ERROR_X_OPEN_DISPLAY|Failed to open X11 display/u.test(details)
+		) {
+			details += [
+				"",
+				"KeyShift global shortcuts require an X11 or compatible XWayland session.",
+				"On native Wayland, copy the text and run `keyshift convert-clipboard`.",
+			].join("\n");
+		}
+
 		throw new Error(`KeyShift host exited during startup.\n${details}`);
 	}
 
@@ -558,6 +588,45 @@ async function showLayouts(): Promise<void> {
 	console.log(output);
 }
 
+async function convertClipboard(): Promise<void> {
+	if (process.platform === "win32") {
+		throw new Error(
+			"convert-clipboard is available on macOS and Linux. On Windows, use the global shortcut.",
+		);
+	}
+
+	await ensureAppDir();
+
+	if (!existsSync(configPath)) {
+		await saveConfig({ ...defaultConfig });
+	}
+
+	if (!existsSync(portableHostPath)) {
+		throw new Error(`Portable host not found: ${portableHostPath}`);
+	}
+
+	const result = spawnSync(
+		process.execPath,
+		[portableHostPath, "--convert-clipboard", configPath, logPath],
+		{
+			encoding: "utf8",
+			windowsHide: true,
+		},
+	);
+
+	if (result.error) {
+		throw new Error(`Unable to convert the clipboard: ${result.error.message}`);
+	}
+
+	if (result.status !== 0) {
+		throw new Error(
+			result.stderr?.trim() || "Unable to convert the clipboard.",
+		);
+	}
+
+	console.log("Clipboard converted.");
+}
+
 async function showLogs(): Promise<void> {
 	if (!existsSync(logPath)) {
 		console.log("No KeyShift log file exists.");
@@ -593,6 +662,10 @@ async function main(): Promise<void> {
 
 		case "layouts":
 			await showLayouts();
+			break;
+
+		case "convert-clipboard":
+			await convertClipboard();
 			break;
       
 		case "update-host":

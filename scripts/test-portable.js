@@ -3,11 +3,27 @@ const {
 	convertPortableText,
 	normalizePortableLayoutId,
 } = require("../dist/portable-layouts.js");
-const { getDefaultShortcut } = require("../dist/config.js");
+const {
+	parseGnomeInputSources,
+	portableLayoutCode,
+} = require("../dist/input-sources.js");
+const {
+	getDefaultLanguageSwitchShortcut,
+	getDefaultShortcut,
+} = require("../dist/config.js");
 
 assert.equal(getDefaultShortcut("win32"), "Control+Alt+K");
 assert.equal(getDefaultShortcut("darwin"), "Command+Shift+K");
 assert.equal(getDefaultShortcut("linux"), "Control+Shift+K");
+assert.equal(getDefaultLanguageSwitchShortcut("darwin"), "Control+Space");
+assert.equal(getDefaultLanguageSwitchShortcut("linux"), "Meta+Space");
+assert.equal(getDefaultLanguageSwitchShortcut("win32"), "");
+assert.equal(portableLayoutCode("en-US"), "us");
+assert.equal(portableLayoutCode("00000429"), "ir");
+assert.deepEqual(
+	parseGnomeInputSources("[('xkb', 'us'), ('ibus', 'mozc-jp'), ('xkb', 'ir+pes_keypad')]"),
+	["us", "ir"],
+);
 
 assert.equal(normalizePortableLayoutId("00000409"), "en-US");
 assert.equal(normalizePortableLayoutId("persian"), "fa-IR");

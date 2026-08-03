@@ -5,15 +5,16 @@ keyshift_command="${1:?KeyShift command path is required}"
 
 cleanup() {
   "$keyshift_command" stop >/dev/null 2>&1 || true
-  [[ -n "${terminal_pid:-}" ]] && kill "$terminal_pid" >/dev/null 2>&1 || true
+  [[ -n "${editor_pid:-}" ]] && kill "$editor_pid" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 "$keyshift_command" init
+setxkbmap -layout us,ir
 "$keyshift_command" start
 
-xterm -title "KeyShift integration target" &
-terminal_pid=$!
+python3 scripts/linux-x11-target.py &
+editor_pid=$!
 
 for _ in {1..50}; do
   window_id="$(xdotool search --name "KeyShift integration target" 2>/dev/null | head -n 1 || true)"
@@ -36,4 +37,10 @@ actual="$(xclip -selection clipboard -out)"
   exit 1
 }
 
-echo "Linux X11 integration test passed."
+active_layout="$(xkb-switch -p)"
+[[ "$active_layout" == "ir" ]] || {
+  printf 'Expected active layout: ir\nActual active layout: %s\n' "$active_layout" >&2
+  exit 1
+}
+
+echo "Linux X11 conversion and input-source integration test passed."

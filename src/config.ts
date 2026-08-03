@@ -38,6 +38,20 @@ export function getDefaultShortcut(
   return "Control+Alt+K";
 }
 
+export function getDefaultLanguageSwitchShortcut(
+  platform: NodeJS.Platform = process.platform
+): string {
+  if (platform === "darwin") {
+    return "Control+Space";
+  }
+
+  if (platform === "linux") {
+    return "Meta+Space";
+  }
+
+  return "";
+}
+
 export const defaultConfig: KeyShiftConfig = {
   shortcut: getDefaultShortcut(),
 
@@ -52,7 +66,10 @@ export const defaultConfig: KeyShiftConfig = {
   copyDelayMs: 150,
   pasteDelayMs: 120,
 
-  selectAllText: true
+  selectAllText: true,
+
+  switchInputLanguage: process.platform !== "win32",
+  languageSwitchShortcut: getDefaultLanguageSwitchShortcut()
 };
 
 export async function ensureAppDir(): Promise<void> {

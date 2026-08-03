@@ -2,12 +2,18 @@
 
 import { spawnSync } from "node:child_process";
 import { appendFile, readFile } from "node:fs/promises";
+import path from "node:path";
 import {
 	uIOhook,
 	UiohookKey,
 	type UiohookKeyboardEvent,
 } from "uiohook-napi";
 
+import { getDefaultLanguageSwitchShortcut } from "./config.js";
+import {
+	parseGnomeInputSources,
+	portableLayoutCode,
+} from "./input-sources.js";
 import { convertPortableText } from "./portable-layouts.js";
 import type { KeyShiftConfig } from "./types.js";
 
@@ -26,6 +32,12 @@ interface Shortcut {
 }
 
 const [, , action, configPath, logPath] = process.argv;
+const macInputSourceScript = path.resolve(
+	__dirname,
+	"..",
+	"scripts",
+	"macos-select-input-source.jxa",
+);
 
 function delay(milliseconds: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -200,7 +212,10 @@ function normalizeShortcutKey(value: string): string {
 	return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
-function parseShortcut(value: string): Shortcut {
+function parseShortcut(
+	value: string,
+	allowModifierOnly = false,
+): Shortcut {
 	const tokens = value
 		.split("+")
 		.map((token) => token.trim())
@@ -239,7 +254,10 @@ function parseShortcut(value: string): Shortcut {
 		}
 	}
 
-	if (shortcut.key === 0) {
+	const hasModifier = shortcut.ctrl || shortcut.alt || shortcut.shift ||
+		shortcut.meta;
+
+	if (shortcut.key === 0 && !(allowModifierOnly && hasModifier)) {
 		throw new Error(`Unsupported shortcut: ${value}`);
 	}
 
@@ -264,6 +282,26 @@ function tapApplicationShortcut(key: number): void {
 	uIOhook.keyTap(key, [modifier]);
 }
 
+function tapShortcut(shortcut: Shortcut): void {
+	const modifiers: number[] = [
+		...(shortcut.ctrl ? [UiohookKey.Ctrl] : []),
+		...(shortcut.alt ? [UiohookKey.Alt] : []),
+		...(shortcut.shift ? [UiohookKey.Shift] : []),
+		...(shortcut.meta ? [UiohookKey.Meta] : []),
+	];
+	let key = shortcut.key;
+
+	if (key === 0) {
+		key = modifiers.pop() ?? 0;
+	}
+
+	if (key === 0) {
+		throw new Error("The shortcut does not contain a key.");
+	}
+
+	uIOhook.keyTap(key, modifiers);
+}
+
 function tapEndOfText(): void {
 	if (process.platform === "darwin") {
 		uIOhook.keyTap(UiohookKey.ArrowRight, [UiohookKey.Meta]);
@@ -271,6 +309,109 @@ function tapEndOfText(): void {
 	}
 
 	uIOhook.keyTap(UiohookKey.End);
+}
+
+async function trySelectInputSource(layoutId: string): Promise<string | undefined> {
+	if (process.platform === "darwin") {
+		const result = spawnSync(
+			"osascript",
+			["-l", "JavaScript", macInputSourceScript, layoutId],
+			{ encoding: "utf8", windowsHide: true },
+		);
+
+		if (result.status === 0) {
+			return `macOS input source ${result.stdout.trim() || layoutId}`;
+		}
+
+		await log(
+			`Direct macOS input-source selection failed: ${
+				result.stderr?.trim() || result.error?.message || `status ${result.status}`
+			}`,
+		);
+		return undefined;
+	}
+
+	if (process.platform !== "linux") {
+		return undefined;
+	}
+
+	const layoutCode = portableLayoutCode(layoutId);
+
+	if (!layoutCode) {
+		return undefined;
+	}
+
+	if (commandExists("gsettings")) {
+		const sources = spawnSync(
+			"gsettings",
+			["get", "org.gnome.desktop.input-sources", "sources"],
+			{ encoding: "utf8", windowsHide: true },
+		);
+
+		if (sources.status === 0) {
+			const layouts = parseGnomeInputSources(sources.stdout);
+			const index = layouts.indexOf(layoutCode);
+
+			if (index >= 0) {
+				const selected = spawnSync(
+					"gsettings",
+					[
+						"set",
+						"org.gnome.desktop.input-sources",
+						"current",
+						String(index),
+					],
+					{ encoding: "utf8", windowsHide: true },
+				);
+
+				if (selected.status === 0) {
+					return `GNOME input source ${layoutCode}`;
+				}
+			}
+		}
+	}
+
+	if (commandExists("xkb-switch")) {
+		const selected = spawnSync(
+			"xkb-switch",
+			["-s", layoutCode],
+			{ encoding: "utf8", windowsHide: true },
+		);
+
+		if (selected.status === 0) {
+			return `XKB input source ${layoutCode}`;
+		}
+	}
+
+	return undefined;
+}
+
+async function switchInputLanguage(
+	targetLayout: string,
+	config: KeyShiftConfig,
+): Promise<void> {
+	if (config.switchInputLanguage === false) {
+		return;
+	}
+
+	const selectedSource = await trySelectInputSource(targetLayout);
+
+	if (selectedSource) {
+		await log(`Switched directly to ${selectedSource}.`);
+		return;
+	}
+
+	const languageSwitchShortcut = config.languageSwitchShortcut?.trim() ||
+		getDefaultLanguageSwitchShortcut();
+
+	if (!languageSwitchShortcut) {
+		throw new Error(
+			`Unable to select input source ${targetLayout}; no fallback shortcut is configured.`,
+		);
+	}
+
+	tapShortcut(parseShortcut(languageSwitchShortcut, true));
+	await log(`Switched input language with ${languageSwitchShortcut}.`);
 }
 
 async function waitForClipboardText(
@@ -392,24 +533,63 @@ async function convertFocusedText(
 			tapEndOfText();
 		}
 
+		await delay(100);
+		await switchInputLanguage(conversion.target, config);
+
 		await log("Converted focused text successfully.");
 	} finally {
 		await restoreClipboard();
 	}
 }
 
+async function convertClipboardText(
+	config: KeyShiftConfig,
+	clipboard: ClipboardProvider,
+): Promise<void> {
+	const input = clipboard.read();
+
+	if (!input) {
+		throw new Error("The clipboard does not contain text to convert.");
+	}
+
+	const conversion = convertPortableText(
+		input,
+		config.sourceLayout,
+		config.targetLayout,
+		config.layoutMode,
+		config.directionDetection,
+	);
+
+	clipboard.write(conversion.text);
+	await switchInputLanguage(conversion.target, config);
+	await log(
+		`Converted clipboard ${conversion.source} -> ${conversion.target}. ` +
+			`InputLength=${input.length}, OutputLength=${conversion.text.length}`,
+	);
+}
+
 async function run(): Promise<void> {
-	if (action !== "--run" || !configPath || !logPath) {
+	if (
+		(action !== "--run" && action !== "--convert-clipboard") ||
+		!configPath ||
+		!logPath
+	) {
 		throw new Error(
-			"Use: portable-host --run <configPath> <logPath>",
+			"Use: portable-host (--run | --convert-clipboard) <configPath> <logPath>",
 		);
 	}
 
 	const config = JSON.parse(
 		await readFile(configPath, "utf8"),
 	) as KeyShiftConfig;
-	const shortcut = parseShortcut(config.shortcut);
 	const clipboard = await resolveClipboardProvider();
+
+	if (action === "--convert-clipboard") {
+		await convertClipboardText(config, clipboard);
+		return;
+	}
+
+	const shortcut = parseShortcut(config.shortcut);
 	const pressedKeys = new Set<number>();
 	let shortcutWasDown = false;
 	let converting = false;

@@ -1,0 +1,77 @@
+name: Release npm package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact package version to release
+        required: true
+        default: 1.1.4
+        type: string
+      macos_global_verified:
+        description: Global shortcut, conversion, paste and input-source switching passed on a real Mac
+        required: true
+        default: false
+        type: boolean
+      dry_run:
+        description: Build and verify without publishing
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  approval:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require native macOS verification
+        if: ${{ !inputs.macos_global_verified }}
+        run: |
+          echo "macos_global_verified must be checked before release." >&2
+          exit 1
+
+  integration:
+    needs: approval
+    uses: ./.github/workflows/cross-platform-integration.yml
+
+  publish:
+    needs: integration
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - run: npm ci
+
+      - name: Verify requested version
+        shell: bash
+        run: |
+          actual="$(node -p "require('./package.json').version")"
+          [[ "$actual" == "${{ inputs.version }}" ]] || {
+            echo "Requested version ${{ inputs.version }} does not match package.json $actual" >&2
+            exit 1
+          }
+
+      - name: Release rehearsal
+        if: ${{ inputs.dry_run }}
+        run: npm publish --dry-run
+        env:
+          KEYSHIFT_RELEASE_APPROVED: "true"
+
+      - name: Publish to npm
+        if: ${{ !inputs.dry_run }}
+        run: npm publish --access public --provenance
+        env:
+          KEYSHIFT_RELEASE_APPROVED: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
