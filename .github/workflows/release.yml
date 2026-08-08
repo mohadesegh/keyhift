@@ -6,10 +6,15 @@ on:
       version:
         description: Exact package version to release
         required: true
-        default: 1.1.4
+        default: 1.1.5
         type: string
       macos_global_verified:
         description: Global shortcut, conversion, paste and input-source switching passed on a real Mac
+        required: true
+        default: false
+        type: boolean
+      kde_wayland_verified:
+        description: Global shortcut and focused-text conversion passed on real KDE Plasma with KWin Wayland
         required: true
         default: false
         type: boolean
@@ -30,6 +35,12 @@ jobs:
         if: ${{ !inputs.macos_global_verified }}
         run: |
           echo "macos_global_verified must be checked before release." >&2
+          exit 1
+
+      - name: Require native KDE Wayland verification
+        if: ${{ !inputs.kde_wayland_verified }}
+        run: |
+          echo "kde_wayland_verified must be checked before release." >&2
           exit 1
 
   integration:

@@ -80,9 +80,10 @@ The Windows host supports every keyboard layout exposed by the Windows
 keyboard APIs. The macOS/Linux host currently supports the `en-US` and
 `fa-IR` pair.
 
-Linux global input uses X11. It works in X11 sessions and with compatible
-XWayland applications. Native Wayland compositors can restrict global hooks
-and injected keystrokes, so a full Wayland session is not guaranteed.
+Linux X11 uses the bundled global-input host. Native Wayland sessions use the
+XDG Global Shortcuts and Remote Desktop portals for compositor-authorized
+shortcut capture and copy/paste key injection. KDE Plasma/KWin asks for these
+permissions when KeyShift starts for the first time.
 
 KeyShift does not currently run on:
 
@@ -105,8 +106,8 @@ Platform requirements:
 - Windows: .NET Framework 4.x runtime
 - macOS: grant Accessibility permission to the terminal/Node process
 - Linux X11: `xclip` or `xsel`
-- Linux Wayland clipboard: `wl-clipboard`; global input still depends on
-  X11/XWayland compatibility
+- Linux Wayland: `wl-clipboard`, `xdg-desktop-portal`, and a portal backend
+  that implements Global Shortcuts and Remote Desktop (such as KDE Plasma)
 
 The npm package includes the Windows executable and prebuilt macOS/Linux
 global-input bindings. The .NET Framework compiler is required only when
@@ -128,13 +129,16 @@ On Ubuntu/Debian X11, install a clipboard helper:
 sudo apt-get install xclip
 ```
 
-On Wayland, install `wl-clipboard` as well. For macOS, allow the terminal or
-Node.js under **System Settings > Privacy & Security > Accessibility** so
-KeyShift can observe the shortcut and send copy/paste keystrokes.
+On Wayland, install `wl-clipboard` as well. The first `keyshift start` opens
+the desktop's permission dialogs for the global shortcut and keyboard control;
+approve both so KeyShift can operate on the focused native Wayland window.
+For macOS, allow the terminal or Node.js under **System Settings > Privacy &
+Security > Accessibility** so KeyShift can observe the shortcut and send
+copy/paste keystrokes.
 
-After a successful macOS/Linux shortcut conversion, KeyShift also triggers
+After a successful macOS/Linux X11 shortcut conversion, KeyShift also triggers
 the configured system input-language shortcut. Defaults are `Control+Space`
-on macOS and `Meta+Space` on Linux. If your desktop uses another shortcut,
+on macOS and `Meta+Space` on Linux X11. If your desktop uses another shortcut,
 configure it and restart KeyShift:
 
 ```bash
@@ -148,16 +152,19 @@ Disable this behavior with:
 keyshift config set switchInputLanguage false
 ```
 
-If the desktop blocks global input (for example, a native Wayland session),
-copy the text and run this command to convert the clipboard directly:
+On native Wayland, KeyShift deliberately does not change the active keyboard
+layout. A toggle shortcut cannot guarantee that KWin reaches the conversion's
+target layout, while `setxkbmap -layout ...` would only replace the XWayland
+layout list. Focused-text conversion and paste still happen automatically.
+
+To convert only the clipboard without touching the focused window, run:
 
 ```bash
 keyshift convert-clipboard
 ```
 
-Paste the converted text normally. This fallback also helps verify that the
-installed macOS/Linux package, layout conversion and clipboard backend work
-before troubleshooting global-input permissions.
+This command is also useful for verifying the layout conversion and clipboard
+backend independently of global-input permissions.
 
 Initialize the default configuration:
 
@@ -328,6 +335,25 @@ keyshift stop
 ```
 
 Stops the native host and removes the saved process ID.
+
+---
+
+### Uninstall KeyShift
+
+```bash
+keyshift uninstall
+```
+
+Stops KeyShift, removes its configuration, logs, installed native host and
+Wayland desktop entry, then removes the global npm package. If npm needs
+elevated package-directory access, the command keeps the local cleanup and
+prints the manual `npm uninstall -g keyshift` fallback.
+
+To remove only KeyShift's local data while keeping the npm package installed:
+
+```bash
+keyshift uninstall --keep-package
+```
 
 ---
 
@@ -1139,7 +1165,7 @@ Install the generated archive globally:
 
 ```bash
 npm uninstall -g keyshift
-npm install -g ./keyshift-1.1.4.tgz
+npm install -g ./keyshift-1.1.5.tgz
 ```
 
 Test:
@@ -1158,20 +1184,27 @@ npm run release:check
 ```
 
 The cross-platform workflow must also pass Windows, Linux X11 and the packaged
-macOS checks. Because hosted macOS runners cannot grant Accessibility access,
-run the real global-shortcut test once on a Mac before release:
+macOS checks. Because hosted runners cannot grant every desktop permission, run
+the real global-shortcut test once on a Mac before release:
 
 ```bash
 KEYSHIFT_TEST_GLOBAL_INPUT=1 bash scripts/test-macos.sh "$(command -v keyshift)"
 ```
+
+Also install the packed tarball on a real KDE Plasma/KWin Wayland session.
+Approve the Global Shortcuts and Remote Desktop portal prompts, type text with
+the wrong layout in a native Wayland application, and verify that the shortcut
+converts and replaces the focused text without a manual clipboard step. The log
+must not report a `setxkbmap` layout change.
 
 ---
 
 ## Publishing
 
 Use the **Release npm package** GitHub Actions workflow. First run it with
-`dry_run` enabled. For a real release, confirm the native macOS global test,
-set `dry_run` to false, and enter the exact version from `package.json`.
+`dry_run` enabled. For a real release, confirm both the native macOS global test
+and the KDE/KWin Wayland test, set `dry_run` to false, and enter the exact
+version from `package.json`.
 
 The workflow blocks publication unless the cross-platform integration matrix
 passes. `prepublishOnly` also rebuilds, retests, checks that the version is not

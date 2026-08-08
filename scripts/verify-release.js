@@ -73,6 +73,7 @@ const requiredFiles = [
 	"dist/input-sources.js",
 	"dist/portable-host.js",
 	"dist/portable-layouts.js",
+	"dist/wayland-portals.js",
 	"native/keyshift-host.exe",
 ];
 

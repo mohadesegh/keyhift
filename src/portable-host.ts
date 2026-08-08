@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import {
 	uIOhook,
 	UiohookKey,
@@ -15,6 +17,10 @@ import {
 } from "./input-sources.js";
 import { convertPortableText } from "./portable-layouts.js";
 import type { KeyShiftConfig } from "./types.js";
+import {
+	createWaylandPortalController,
+	type WaylandKeyboardController,
+} from "./wayland-portals.js";
 
 interface ClipboardProvider {
 	name: string;
@@ -30,7 +36,15 @@ interface Shortcut {
 	meta: boolean;
 }
 
+interface KeyboardController {
+	tapApplicationShortcut(key: string): Promise<void>;
+	tapEndOfText(): Promise<void>;
+	tapKey(key: string): Promise<void>;
+	tapShortcut(shortcut: string): Promise<void>;
+}
+
 const [, , action, configPath, logPath] = process.argv;
+const WAYLAND_APP_ID = "io.github.mohadesegh.KeyShift";
 
 function delay(milliseconds: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -289,6 +303,34 @@ function tapApplicationShortcut(key: number): void {
 	uIOhook.keyTap(key, [modifier]);
 }
 
+async function ensureWaylandDesktopEntry(): Promise<string | undefined> {
+	try {
+		const dataRoot = process.env.XDG_DATA_HOME ??
+			path.join(os.homedir(), ".local", "share");
+		const applicationsDirectory = path.join(dataRoot, "applications");
+		await mkdir(applicationsDirectory, { recursive: true });
+		await writeFile(
+			path.join(applicationsDirectory, `${WAYLAND_APP_ID}.desktop`),
+			[
+				"[Desktop Entry]",
+				"Type=Application",
+				"Name=KeyShift",
+				"Comment=Convert text typed with the wrong keyboard layout",
+				"Exec=keyshift start",
+				"NoDisplay=true",
+				"Terminal=false",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+		return WAYLAND_APP_ID;
+	} catch (error: unknown) {
+		const message = error instanceof Error ? error.message : String(error);
+		await log(`Unable to install the Wayland application identity: ${message}`);
+		return undefined;
+	}
+}
+
 function tapShortcut(shortcut: Shortcut): void {
 	const modifiers: number[] = [
 		...(shortcut.ctrl ? [UiohookKey.Ctrl] : []),
@@ -318,6 +360,28 @@ function tapEndOfText(): void {
 	uIOhook.keyTap(UiohookKey.End);
 }
 
+const uiohookKeyboardController: KeyboardController = {
+	tapApplicationShortcut: async (key) => {
+		const keycode = (UiohookKey as Record<string, number>)[
+			normalizeShortcutKey(key)
+		];
+
+		if (!keycode) {
+			throw new Error(`Unsupported application shortcut key: ${key}`);
+		}
+
+		tapApplicationShortcut(keycode);
+	},
+	tapEndOfText: async () => tapEndOfText(),
+	tapKey: async (key) => {
+		const parsed = parseShortcut(key);
+		tapShortcut(parsed);
+	},
+	tapShortcut: async (shortcut) => {
+		tapShortcut(parseShortcut(shortcut, true));
+	},
+};
+
 async function trySelectInputSource(layoutId: string): Promise<string | undefined> {
 	if (process.platform === "darwin") {
 		// macOS does not expose a supported command-line API for selecting an
@@ -326,6 +390,10 @@ async function trySelectInputSource(layoutId: string): Promise<string | undefine
 	}
 
 	if (process.platform !== "linux") {
+		return undefined;
+	}
+
+	if (process.env.WAYLAND_DISPLAY) {
 		return undefined;
 	}
 
@@ -386,8 +454,17 @@ async function trySelectInputSource(layoutId: string): Promise<string | undefine
 async function switchInputLanguage(
 	targetLayout: string,
 	config: KeyShiftConfig,
+	keyboard?: KeyboardController,
 ): Promise<void> {
 	if (config.switchInputLanguage === false) {
+		return;
+	}
+
+	if (process.platform === "linux" && process.env.WAYLAND_DISPLAY) {
+		await log(
+			`Input-language switch to ${targetLayout} skipped on native Wayland; ` +
+				"KeyShift will not alter the KWin or XWayland layout state.",
+		);
 		return;
 	}
 
@@ -407,7 +484,15 @@ async function switchInputLanguage(
 		);
 	}
 
-	tapShortcut(parseShortcut(languageSwitchShortcut, true));
+	if (!keyboard) {
+		await log(
+			`Input-language switch skipped: ${languageSwitchShortcut} requires ` +
+				"the focused-text keyboard controller.",
+		);
+		return;
+	}
+
+	await keyboard.tapShortcut(languageSwitchShortcut);
 	await log(`Switched input language with ${languageSwitchShortcut}.`);
 }
 
@@ -458,6 +543,7 @@ async function waitForShortcutRelease(
 async function convertFocusedText(
 	config: KeyShiftConfig,
 	clipboard: ClipboardProvider,
+	keyboard: KeyboardController,
 ): Promise<void> {
 	const previousClipboard = config.preserveClipboard
 		? clipboard.read()
@@ -479,11 +565,11 @@ async function convertFocusedText(
 		clipboard.write(sentinel);
 
 		if (config.selectAllText) {
-			tapApplicationShortcut(UiohookKey.A);
+			await keyboard.tapApplicationShortcut("A");
 			await delay(120);
 		}
 
-		tapApplicationShortcut(UiohookKey.C);
+		await keyboard.tapApplicationShortcut("C");
 
 		const selectedText = await waitForClipboardText(
 			clipboard,
@@ -493,7 +579,7 @@ async function convertFocusedText(
 
 		if (!selectedText) {
 			if (config.selectAllText) {
-				uIOhook.keyTap(UiohookKey.ArrowRight);
+				await keyboard.tapKey("ArrowRight");
 			}
 
 			if (previousClipboard === undefined) {
@@ -523,15 +609,15 @@ async function convertFocusedText(
 		);
 		clipboard.write(conversion.text);
 		await delay(Math.max(config.pasteDelayMs, 120));
-		tapApplicationShortcut(UiohookKey.V);
+		await keyboard.tapApplicationShortcut("V");
 		await delay(Math.max(config.pasteDelayMs, 250));
 
 		if (config.selectAllText) {
-			tapEndOfText();
+			await keyboard.tapEndOfText();
 		}
 
 		await delay(100);
-		await switchInputLanguage(conversion.target, config);
+		await switchInputLanguage(conversion.target, config, keyboard);
 
 		await log("Converted focused text successfully.");
 	} finally {
@@ -586,6 +672,59 @@ async function run(): Promise<void> {
 		return;
 	}
 
+	const nativeWayland = process.platform === "linux" &&
+		Boolean(process.env.WAYLAND_DISPLAY);
+
+	if (nativeWayland) {
+		let converting = false;
+		let controller: WaylandKeyboardController | undefined;
+		const appId = await ensureWaylandDesktopEntry();
+
+		await log(
+			`KeyShift Wayland host starting. Shortcut=${config.shortcut}, ` +
+				`Clipboard=${clipboard.name}. Waiting for portal permissions.`,
+		);
+
+		controller = await createWaylandPortalController({
+			appId,
+			shortcut: config.shortcut,
+			portalStatePath: path.join(
+				path.dirname(configPath),
+				"wayland-portal.json",
+			),
+			log,
+			onShortcut: async () => {
+				if (converting || !controller) {
+					return;
+				}
+
+				converting = true;
+				await log("Shortcut detected through the Wayland portal.");
+
+				try {
+					await convertFocusedText(config, clipboard, controller);
+				} catch (error: unknown) {
+					const message = error instanceof Error
+						? error.stack ?? error.message
+						: String(error);
+					await log(`Conversion failed: ${message}`);
+				} finally {
+					converting = false;
+				}
+			},
+		});
+
+		const shutDown = async (): Promise<void> => {
+			await controller?.close();
+			await log("KeyShift Wayland host stopped.");
+			process.exit(0);
+		};
+
+		process.on("SIGTERM", () => void shutDown());
+		process.on("SIGINT", () => void shutDown());
+		return;
+	}
+
 	const shortcut = parseShortcut(config.shortcut);
 	const pressedKeys = new Set<number>();
 	let shortcutWasDown = false;
@@ -595,13 +734,6 @@ async function run(): Promise<void> {
 		`KeyShift portable host running. Platform=${process.platform}, ` +
 			`Shortcut=${config.shortcut}, Clipboard=${clipboard.name}`,
 	);
-
-	if (process.platform === "linux" && process.env.WAYLAND_DISPLAY) {
-		await log(
-			"Wayland detected. Global shortcuts may be limited by the compositor; " +
-				"an X11/XWayland session is recommended.",
-		);
-	}
 
 	uIOhook.on("keydown", (event) => {
 		pressedKeys.add(event.keycode);
@@ -618,7 +750,11 @@ async function run(): Promise<void> {
 		converting = true;
 		void log("Shortcut detected.");
 		void waitForShortcutRelease(pressedKeys, shortcut)
-			.then(() => convertFocusedText(config, clipboard))
+			.then(() => convertFocusedText(
+				config,
+				clipboard,
+				uiohookKeyboardController,
+			))
 			.catch(async (error: unknown) => {
 				const message = error instanceof Error
 					? error.stack ?? error.message

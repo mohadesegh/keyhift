@@ -6,6 +6,8 @@ import { existsSync } from "node:fs";
 
 import { copyFile, readFile, rm, writeFile } from "node:fs/promises";
 
+import os from "node:os";
+
 import path from "node:path";
 
 import {
@@ -41,6 +43,7 @@ const hostSourcePath = path.join(packageRoot, "native", "KeyShiftHost.cs");
 
 const installedHostExePath = path.join(appDir, "keyshift-host.exe");
 const portableHostPath = path.join(packageRoot, "dist", "portable-host.js");
+const waylandDesktopEntryName = "io.github.mohadesegh.KeyShift.desktop";
 
 function requireWindows(command: string): void {
 	if (process.platform === "win32") {
@@ -63,6 +66,7 @@ Commands:
   keyshift init
   keyshift start
   keyshift stop
+  keyshift uninstall [--keep-package]
   keyshift restart
   keyshift status
   keyshift layouts
@@ -636,6 +640,60 @@ async function showLogs(): Promise<void> {
 	console.log(await readFile(logPath, "utf8"));
 }
 
+async function uninstall(arguments_: string[]): Promise<void> {
+	const supportedArguments = new Set(["--keep-package"]);
+	const unknownArgument = arguments_.find(
+		(argument) => !supportedArguments.has(argument),
+	);
+
+	if (unknownArgument) {
+		throw new Error(
+			`Unknown uninstall option: ${unknownArgument}. Use: keyshift uninstall [--keep-package]`,
+		);
+	}
+
+	await stop();
+	await new Promise<void>((resolve) => {
+		setTimeout(resolve, 500);
+	});
+
+	if (process.platform === "linux") {
+		const dataRoot = process.env.XDG_DATA_HOME ??
+			path.join(os.homedir(), ".local", "share");
+		await rm(
+			path.join(dataRoot, "applications", waylandDesktopEntryName),
+			{ force: true },
+		);
+	}
+
+	await rm(appDir, { force: true, recursive: true });
+	console.log("KeyShift configuration, logs and runtime files removed.");
+
+	if (arguments_.includes("--keep-package")) {
+		console.log("The npm package was kept.");
+		return;
+	}
+
+	const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+	const result = spawnSync(
+		npmCommand,
+		["uninstall", "--global", "keyshift"],
+		{
+			stdio: "inherit",
+			windowsHide: true,
+			shell: process.platform === "win32",
+		},
+	);
+
+	if (result.error || result.status !== 0) {
+		throw new Error(
+			"KeyShift data was removed, but npm could not remove the global package. Run `npm uninstall -g keyshift` manually.",
+		);
+	}
+
+	console.log("KeyShift uninstalled successfully.");
+}
+
 async function main(): Promise<void> {
 	const [command, ...args] = process.argv.slice(2);
 
@@ -650,6 +708,10 @@ async function main(): Promise<void> {
 
 		case "stop":
 			await stop();
+			break;
+
+		case "uninstall":
+			await uninstall(args);
 			break;
 
 		case "restart":
