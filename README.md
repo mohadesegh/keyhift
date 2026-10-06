@@ -112,11 +112,18 @@ Platform requirements:
   that implements Global Shortcuts and Remote Desktop (such as KDE Plasma)
 
 The npm package includes the Windows executable. The macOS/Linux global-input
-binding (`uiohook-napi`) is an optional dependency with prebuilt binaries for
-macOS x64/arm64 and glibc Linux x64/arm64. On other systems (Alpine/musl,
-32-bit ARM, older glibc) KeyShift still installs; the global shortcut is then
-unavailable unless a C/C++ toolchain and the X11 development headers were
-present at install time, but `keyshift convert-clipboard` keeps working.
+binding (`uiohook-napi`) is an optional dependency with working prebuilt
+binaries for macOS x64/arm64 and glibc Linux x64. On every other Linux system
+(arm64, Alpine/musl, 32-bit ARM, older glibc) it is compiled during
+installation, which needs a C/C++ toolchain, python3 and the X11 development
+headers. On Debian/Ubuntu install them before KeyShift:
+
+```bash
+sudo apt-get install build-essential python3 libx11-dev libxtst-dev libxt-dev libxrandr-dev
+```
+
+Without them KeyShift still installs and `keyshift convert-clipboard` keeps
+working; only the global shortcut is unavailable.
 
 Wayland compositors without both portals (Sway and other wlroots compositors,
 for example) cannot provide the global shortcut. Bind

@@ -74,11 +74,22 @@ function loadUiohook(): UiohookModule {
 			[
 				"The global-input module (uiohook-napi) could not be loaded on " +
 					`${process.platform}-${process.arch}.`,
-				process.platform === "linux"
-					? "It needs glibc 2.34 or newer and the libX11, libXtst, libXt " +
-						"and libXrandr libraries. On other systems install a C/C++ " +
-						"toolchain with the X11 development headers and reinstall KeyShift."
-					: "Reinstall KeyShift with install scripts enabled so the module can be built.",
+				process.platform !== "linux"
+					? "Reinstall KeyShift with install scripts enabled so the module can be built."
+					: process.arch === "x64"
+						? "Its prebuilt binary needs glibc 2.34 or newer and the libX11, " +
+							"libXtst, libXt and libXrandr libraries. On older systems install " +
+							"the build requirements below and reinstall KeyShift."
+						: "It only ships a working Linux binary for x64, so on this " +
+							"architecture it is compiled during installation.",
+				...(process.platform === "linux"
+					? [
+						"Build requirements: a C/C++ toolchain, python3 and the X11 " +
+							"development headers, for example on Debian/Ubuntu: " +
+							"sudo apt-get install build-essential python3 libx11-dev " +
+							"libxtst-dev libxt-dev libxrandr-dev",
+					]
+					: []),
 				"Clipboard conversion still works: copy the text and run " +
 					"`keyshift convert-clipboard`.",
 				`Details: ${details}`,
