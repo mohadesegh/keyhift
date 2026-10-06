@@ -7,13 +7,12 @@ on:
     branches: [main, "codex/**"]
 
 jobs:
-  integration:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-22.04, macos-14]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+  # The Windows native host can only be compiled on Windows. Build the package
+  # once here so every platform tests, and the release publishes, the same
+  # tarball.
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v5
@@ -26,6 +25,55 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm pack
+
+      - name: Verify packed tarball
+        shell: bash
+        run: node scripts/verify-release.js --tarball "$(ls keyshift-*.tgz)" --skip-registry
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: keyshift-package
+          path: keyshift-*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  integration:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-22.04
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - macos-14
+          - macos-15-intel
+        node: [22]
+        include:
+          # The oldest Node.js release allowed by package.json "engines".
+          - os: ubuntu-22.04
+            node: 18
+          - os: windows-latest
+            node: 18
+    name: integration (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: keyshift-package
 
       - name: Install packed CLI
         shell: bash
@@ -70,6 +118,18 @@ jobs:
             echo "::error title=macOS integration failure::$message"
             exit "$status"
           fi
+
+      # Hosted runners usually lack the Accessibility permission, so this is
+      # informational only; the release workflow still requires the manual
+      # confirmation from a real Mac.
+      - name: macOS global shortcut (best effort)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        timeout-minutes: 3
+        shell: bash
+        env:
+          KEYSHIFT_TEST_GLOBAL_INPUT: "1"
+        run: bash scripts/test-macos.sh "$RUNNER_TEMP/keyshift-prefix/bin/keyshift"
 
       - name: Windows conversion
         if: runner.os == 'Windows'

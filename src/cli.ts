@@ -2,7 +2,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import { copyFile, readFile, rm, writeFile } from "node:fs/promises";
 
@@ -381,7 +381,29 @@ async function ensureNativeHost(): Promise<void> {
 	await ensureAppDir();
 
 	if (existsSync(packagedHostExePath)) {
-		await copyFile(packagedHostExePath, installedHostExePath);
+		if (
+			existsSync(installedHostExePath) &&
+			(await readFile(packagedHostExePath)).equals(
+				await readFile(installedHostExePath),
+			)
+		) {
+			return;
+		}
+
+		try {
+			await copyFile(packagedHostExePath, installedHostExePath);
+		} catch (error: unknown) {
+			const code = (error as NodeJS.ErrnoException).code;
+
+			if (code === "EBUSY" || code === "EPERM") {
+				throw new Error(
+					`${installedHostExePath} is in use by a running KeyShift host. ` +
+						"Run `keyshift stop` and try again.",
+				);
+			}
+
+			throw error;
+		}
 
 		return;
 	}
@@ -389,26 +411,155 @@ async function ensureNativeHost(): Promise<void> {
 	await compileNativeHost();
 }
 
-async function isRunning(): Promise<boolean> {
+async function readPid(): Promise<number | undefined> {
 	if (!existsSync(pidPath)) {
+		return undefined;
+	}
+
+	const pid = Number((await readFile(pidPath, "utf8")).trim());
+
+	return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+}
+
+function readProcessCommand(pid: number): string | undefined {
+	if (process.platform === "win32") {
+		const result = spawnSync(
+			"tasklist",
+			["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"],
+			{ encoding: "utf8", windowsHide: true },
+		);
+
+		return result.status === 0 ? result.stdout : undefined;
+	}
+
+	if (process.platform === "linux") {
+		try {
+			return readFileSync(`/proc/${pid}/cmdline`, "utf8").replace(/\0/gu, " ");
+		} catch {
+			// Fall back to ps below.
+		}
+	}
+
+	const result = spawnSync("ps", ["-p", String(pid), "-o", "command="], {
+		encoding: "utf8",
+	});
+
+	return result.status === 0 ? result.stdout : undefined;
+}
+
+// The PID file survives reboots and crashes, and the operating system reuses
+// process IDs. Confirm that the process really is a KeyShift host before
+// reporting it as running or terminating it.
+function isKeyShiftHost(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+	} catch {
 		return false;
 	}
 
-	const rawPid = await readFile(pidPath, "utf8");
-	const pid = Number(rawPid.trim());
+	const command = readProcessCommand(pid);
 
-	if (!Number.isInteger(pid) || pid <= 0) {
-		await rm(pidPath, { force: true });
+	if (command === undefined) {
+		return true;
+	}
+
+	return process.platform === "win32"
+		? /keyshift-host\.exe/iu.test(command)
+		: command.includes("portable-host.js");
+}
+
+async function isRunning(): Promise<boolean> {
+	const pid = await readPid();
+
+	if (pid !== undefined && isKeyShiftHost(pid)) {
+		return true;
+	}
+
+	await rm(pidPath, { force: true });
+	return false;
+}
+
+// Terminates hosts started from the installed executable that are no longer
+// tracked by the PID file, so they cannot lock the executable or convert twice.
+function stopUntrackedWindowsHosts(): boolean {
+	const listed = spawnSync(
+		"tasklist",
+		["/FI", "IMAGENAME eq keyshift-host.exe", "/FO", "CSV", "/NH"],
+		{ encoding: "utf8", windowsHide: true },
+	);
+
+	if (!/keyshift-host\.exe/iu.test(listed.stdout ?? "")) {
 		return false;
 	}
 
+	const hostPath = installedHostExePath.replace(/'/gu, "''");
+	const result = spawnSync(
+		"powershell.exe",
+		[
+			"-NoProfile",
+			"-Command",
+			"$hosts = @(Get-Process -Name keyshift-host -ErrorAction SilentlyContinue | " +
+				`Where-Object { $_.Path -eq '${hostPath}' }); ` +
+				"$hosts | Stop-Process -Force; $hosts.Count",
+		],
+		{ encoding: "utf8", windowsHide: true },
+	);
+
+	return Number((result.stdout ?? "").trim()) > 0;
+}
+
+function processIsAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
 		return true;
 	} catch {
-		await rm(pidPath, { force: true });
 		return false;
 	}
+}
+
+// Wayland portals show permission dialogs, so the host is only usable after
+// the user approves them. Wait for the host to report that instead of
+// announcing success while the dialogs are still open.
+async function waitForWaylandHost(
+	pid: number,
+): Promise<"ready" | "exited" | "pending"> {
+	const deadline = Date.now() + 120_000;
+	let announced = false;
+
+	while (Date.now() < deadline) {
+		await new Promise<void>((resolve) => {
+			setTimeout(resolve, 250);
+		});
+
+		let hostLog = "";
+
+		try {
+			hostLog = await readFile(logPath, "utf8");
+		} catch {
+			// The host has not written its log yet.
+		}
+
+		if (hostLog.includes("Wayland portals ready.")) {
+			return "ready";
+		}
+
+		if (!processIsAlive(pid)) {
+			return "exited";
+		}
+
+		if (!announced && hostLog.includes("Waiting for portal permissions.")) {
+			announced = true;
+			console.log(
+				"Waiting for the desktop permission dialogs (global shortcut and keyboard control)...",
+			);
+		}
+	}
+
+	console.log(
+		"KeyShift is still waiting for the desktop permission dialogs. " +
+			"Approve them, then check `keyshift logs`.",
+	);
+	return "pending";
 }
 
 async function start(): Promise<void> {
@@ -428,6 +579,7 @@ async function start(): Promise<void> {
 	let hostArguments: string[];
 
 	if (process.platform === "win32") {
+		stopUntrackedWindowsHosts();
 		await ensureNativeHost();
 		executablePath = installedHostExePath;
 		hostArguments = ["--run", configPath, logPath];
@@ -457,16 +609,23 @@ async function start(): Promise<void> {
 
 	await writeFile(pidPath, String(child.pid), "utf8");
 
-	await new Promise<void>((resolve) => {
-		setTimeout(resolve, 1200);
-	});
+	let alive: boolean;
 
-	let alive = true;
+	if (process.platform === "linux" && process.env.WAYLAND_DISPLAY) {
+		const state = await waitForWaylandHost(child.pid);
 
-	try {
-		process.kill(child.pid, 0);
-	} catch {
-		alive = false;
+		if (state === "pending") {
+			child.unref();
+			return;
+		}
+
+		alive = state === "ready";
+	} else {
+		await new Promise<void>((resolve) => {
+			setTimeout(resolve, 1200);
+		});
+
+		alive = processIsAlive(child.pid);
 	}
 
 	if (!alive) {
@@ -518,35 +677,38 @@ async function start(): Promise<void> {
 }
 
 async function stop(): Promise<void> {
-	if (!existsSync(pidPath)) {
-		console.log("KeyShift is not running.");
-		return;
+	const pid = await readPid();
+	let stopped = false;
+
+	if (pid !== undefined && isKeyShiftHost(pid)) {
+		if (process.platform === "win32") {
+			await new Promise<void>((resolve) => {
+				const child = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
+					stdio: "ignore",
+					windowsHide: true,
+				});
+
+				child.on("exit", () => resolve());
+				child.on("error", () => resolve());
+			});
+		} else {
+			try {
+				process.kill(pid, "SIGTERM");
+			} catch {
+				// Process may already be stopped.
+			}
+		}
+
+		stopped = true;
 	}
 
-	const rawPid = await readFile(pidPath, "utf8");
-	const pid = Number(rawPid.trim());
-
-	if (Number.isInteger(pid) && pid > 0 && process.platform === "win32") {
-		await new Promise<void>((resolve) => {
-			const child = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
-				stdio: "ignore",
-				windowsHide: true,
-			});
-
-			child.on("exit", () => resolve());
-			child.on("error", () => resolve());
-		});
-	} else if (Number.isInteger(pid) && pid > 0) {
-		try {
-			process.kill(pid, "SIGTERM");
-		} catch {
-			// Process may already be stopped.
-		}
+	if (process.platform === "win32") {
+		stopped = stopUntrackedWindowsHosts() || stopped;
 	}
 
 	await rm(pidPath, { force: true });
 
-	console.log("KeyShift stopped.");
+	console.log(stopped ? "KeyShift stopped." : "KeyShift is not running.");
 }
 
 async function restart(): Promise<void> {
@@ -640,6 +802,26 @@ async function showLogs(): Promise<void> {
 	console.log(await readFile(logPath, "utf8"));
 }
 
+// Global installs made with another package manager live in that manager's
+// own directory, and only it can remove them cleanly.
+function globalRemoveCommand(): { command: string; args: string[] } {
+	const location = packageRoot.replace(/\\/gu, "/").toLowerCase();
+
+	if (/\/\.?pnpm\//u.test(location)) {
+		return { command: "pnpm", args: ["remove", "--global", "keyshift"] };
+	}
+
+	if (location.includes("/.bun/")) {
+		return { command: "bun", args: ["remove", "--global", "keyshift"] };
+	}
+
+	if (/\/yarn\/(data\/)?global\//u.test(location)) {
+		return { command: "yarn", args: ["global", "remove", "keyshift"] };
+	}
+
+	return { command: "npm", args: ["uninstall", "--global", "keyshift"] };
+}
+
 async function uninstall(arguments_: string[]): Promise<void> {
 	const supportedArguments = new Set(["--keep-package"]);
 	const unknownArgument = arguments_.find(
@@ -674,20 +856,22 @@ async function uninstall(arguments_: string[]): Promise<void> {
 		return;
 	}
 
-	const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-	const result = spawnSync(
-		npmCommand,
-		["uninstall", "--global", "keyshift"],
-		{
-			stdio: "inherit",
-			windowsHide: true,
-			shell: process.platform === "win32",
-		},
-	);
+	const remove = globalRemoveCommand();
+	const result = spawnSync(remove.command, remove.args, {
+		stdio: "inherit",
+		windowsHide: true,
+		shell: process.platform === "win32",
+	});
 
 	if (result.error || result.status !== 0) {
+		const manualCommand = [remove.command, ...remove.args].join(" ");
+
 		throw new Error(
-			"KeyShift data was removed, but npm could not remove the global package. Run `npm uninstall -g keyshift` manually.",
+			`KeyShift data was removed, but ${remove.command} could not remove the global package. ` +
+				`Run \`${manualCommand}\` manually` +
+				(process.platform === "win32"
+					? "."
+					: " (with sudo if the global directory belongs to root)."),
 		);
 	}
 

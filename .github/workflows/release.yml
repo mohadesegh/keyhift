@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Exact package version to release
+        description: Exact package version to release (must match package.json)
         required: true
-        default: 1.1.5
         type: string
       macos_global_verified:
         description: Global shortcut, conversion, paste and input-source switching passed on a real Mac
@@ -54,6 +53,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v5
 
@@ -61,28 +62,29 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-          cache: npm
 
-      - run: npm ci
+      # Publish the exact tarball that the integration matrix installed and
+      # tested instead of packing a second one here.
+      - uses: actions/download-artifact@v7
+        with:
+          name: keyshift-package
 
-      - name: Verify requested version
+      - name: Verify the tested tarball
         shell: bash
         run: |
-          actual="$(node -p "require('./package.json').version")"
-          [[ "$actual" == "${{ inputs.version }}" ]] || {
-            echo "Requested version ${{ inputs.version }} does not match package.json $actual" >&2
+          archive="keyshift-$RELEASE_VERSION.tgz"
+          [[ -f "$archive" ]] || {
+            echo "Requested version $RELEASE_VERSION does not match the packed tarball: $(ls keyshift-*.tgz)" >&2
             exit 1
           }
+          npm run release:verify-tarball -- "$archive"
 
       - name: Release rehearsal
         if: ${{ inputs.dry_run }}
-        run: npm publish --dry-run
-        env:
-          KEYSHIFT_RELEASE_APPROVED: "true"
+        run: npm publish "./keyshift-$RELEASE_VERSION.tgz" --access public --dry-run
 
       - name: Publish to npm
         if: ${{ !inputs.dry_run }}
-        run: npm publish --access public --provenance
+        run: npm publish "./keyshift-$RELEASE_VERSION.tgz" --access public --provenance
         env:
-          KEYSHIFT_RELEASE_APPROVED: "true"
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

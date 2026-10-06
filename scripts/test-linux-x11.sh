@@ -68,22 +68,30 @@ done
 
 "$keyshift_command" stop
 sleep 0.5
-setxkbmap -layout us
+setxkbmap -layout us -option grp:alt_shift_toggle
 printf 'sghl' | xclip -selection clipboard -in >/dev/null 2>&1
 "$keyshift_command" convert-clipboard
 
 active_layout=""
 for _ in {1..150}; do
   active_layout="$(setxkbmap -query | awk '/^layout:/ { print $2 }')"
-  [[ "$active_layout" == "ir" ]] && break
+  [[ "$active_layout" == "ir,us" ]] && break
   sleep 0.1
 done
 
-[[ "$active_layout" == "ir" ]] || {
-  printf 'Expected active layout: ir\nActual active layout: %s\n' "$active_layout" >&2
+# The target layout must become active without discarding the layout and
+# options that were already configured.
+[[ "$active_layout" == "ir,us" ]] || {
+  printf 'Expected active layouts: ir,us\nActual active layouts: %s\n' "$active_layout" >&2
   printf 'Desktop session: XDG_CURRENT_DESKTOP=%s DESKTOP_SESSION=%s GDMSESSION=%s\n' \
     "${XDG_CURRENT_DESKTOP:-}" "${DESKTOP_SESSION:-}" "${GDMSESSION:-}" >&2
   "$keyshift_command" logs >&2 || true
+  exit 1
+}
+
+setxkbmap -query | grep -q 'grp:alt_shift_toggle' || {
+  echo "The existing XKB options were discarded by the layout switch." >&2
+  setxkbmap -query >&2
   exit 1
 }
 

@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 
 const PORTAL_DESTINATION = "org.freedesktop.portal.Desktop";
@@ -403,6 +404,70 @@ async function readPortalState(path: string): Promise<PortalState> {
 	}
 }
 
+const CLIPBOARD_FALLBACK_HINT =
+	"Bind `keyshift convert-clipboard` to a shortcut in your compositor " +
+	"configuration to convert copied text instead.";
+
+function loadDbus(): { sessionBus(): NativeBus } {
+	if (!process.env.DBUS_SESSION_BUS_ADDRESS) {
+		const runtimeDirectory = process.env.XDG_RUNTIME_DIR ??
+			`/run/user/${process.getuid?.() ?? 0}`;
+		const socketPath = `${runtimeDirectory}/bus`;
+
+		if (!existsSync(socketPath)) {
+			throw new Error(
+				"DBUS_SESSION_BUS_ADDRESS is not set, so the desktop portals cannot " +
+					"be reached. Start KeyShift from inside the graphical session.",
+			);
+		}
+
+		process.env.DBUS_SESSION_BUS_ADDRESS = `unix:path=${socketPath}`;
+	}
+
+	try {
+		return require("@homebridge/dbus-native") as {
+			sessionBus(): NativeBus;
+		};
+	} catch (error: unknown) {
+		const details = error instanceof Error ? error.message : String(error);
+		throw new Error(
+			"The optional @homebridge/dbus-native dependency is not installed; " +
+				`reinstall KeyShift without --omit=optional. Details: ${details}`,
+		);
+	}
+}
+
+// Only some desktops (KDE Plasma, recent GNOME) implement both portals. Check
+// up front so wlroots compositors get an actionable message instead of a raw
+// D-Bus error.
+async function requirePortal(
+	bus: NativeBus,
+	interfaceName: string,
+	label: string,
+): Promise<void> {
+	try {
+		await invoke(
+			bus,
+			"org.freedesktop.DBus.Properties",
+			"Get",
+			"ss",
+			[interfaceName, "version"],
+		);
+	} catch (error: unknown) {
+		const details = error instanceof Error ? error.message : String(error);
+		const desktop = process.env.XDG_CURRENT_DESKTOP || "this desktop";
+		throw new Error(
+			[
+				`The ${label} portal is not available on ${desktop}.`,
+				"KeyShift's Wayland global shortcut needs xdg-desktop-portal with " +
+					"a backend that implements both Global Shortcuts and Remote Desktop.",
+				CLIPBOARD_FALLBACK_HINT,
+				`Details: ${details}`,
+			].join("\n"),
+		);
+	}
+}
+
 export async function createWaylandPortalController(optionsInput: {
 	appId?: string;
 	log(message: string): Promise<void>;
@@ -410,11 +475,10 @@ export async function createWaylandPortalController(optionsInput: {
 	portalStatePath: string;
 	shortcut: string;
 }): Promise<WaylandKeyboardController> {
-	const dbus = require("@homebridge/dbus-native") as {
-		sessionBus(): NativeBus;
-	};
-	const bus = dbus.sessionBus();
+	const bus = loadDbus().sessionBus();
 	await waitForBusName(bus);
+	await requirePortal(bus, GLOBAL_SHORTCUTS_INTERFACE, "Global Shortcuts");
+	await requirePortal(bus, REMOTE_DESKTOP_INTERFACE, "Remote Desktop");
 
 	if (optionsInput.appId) {
 		try {

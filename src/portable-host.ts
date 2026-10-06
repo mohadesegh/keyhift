@@ -1,19 +1,18 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { accessSync, constants } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import {
-	uIOhook,
-	UiohookKey,
-	type UiohookKeyboardEvent,
-} from "uiohook-napi";
+import type { UiohookKeyboardEvent } from "uiohook-napi";
 
 import { getDefaultLanguageSwitchShortcut } from "./config.js";
 import {
 	parseGnomeInputSources,
+	parseXkbQuery,
 	portableLayoutCode,
+	prependXkbLayout,
 } from "./input-sources.js";
 import { convertPortableText } from "./portable-layouts.js";
 import type { KeyShiftConfig } from "./types.js";
@@ -55,11 +54,54 @@ async function log(message: string): Promise<void> {
 	await appendFile(logPath, line, "utf8");
 }
 
+type UiohookModule = typeof import("uiohook-napi");
+
+let uiohookModule: UiohookModule | undefined;
+
+// uiohook-napi is an optional native dependency that links against the X11
+// client libraries on Linux. Load it only on the paths that need global input
+// so clipboard conversion and the Wayland portal host work without it.
+function loadUiohook(): UiohookModule {
+	if (uiohookModule) {
+		return uiohookModule;
+	}
+
+	try {
+		uiohookModule = require("uiohook-napi") as UiohookModule;
+	} catch (error: unknown) {
+		const details = error instanceof Error ? error.message : String(error);
+		throw new Error(
+			[
+				"The global-input module (uiohook-napi) could not be loaded on " +
+					`${process.platform}-${process.arch}.`,
+				process.platform === "linux"
+					? "It needs glibc 2.34 or newer and the libX11, libXtst, libXt " +
+						"and libXrandr libraries. On other systems install a C/C++ " +
+						"toolchain with the X11 development headers and reinstall KeyShift."
+					: "Reinstall KeyShift with install scripts enabled so the module can be built.",
+				"Clipboard conversion still works: copy the text and run " +
+					"`keyshift convert-clipboard`.",
+				`Details: ${details}`,
+			].join("\n"),
+		);
+	}
+
+	return uiohookModule;
+}
+
 function commandExists(command: string): boolean {
-	const result = spawnSync("which", [command], {
-		stdio: "ignore",
-	});
-	return result.status === 0;
+	// `which` is not installed on every distribution, so search PATH directly.
+	return (process.env.PATH ?? "")
+		.split(path.delimiter)
+		.filter(Boolean)
+		.some((directory) => {
+			try {
+				accessSync(path.join(directory, command), constants.X_OK);
+				return true;
+			} catch {
+				return false;
+			}
+		});
 }
 
 function isGnomeSession(): boolean {
@@ -70,10 +112,16 @@ function isGnomeSession(): boolean {
 	].some((value) => /(^|[:;_-])gnome($|[:;_-])/iu.test(value ?? ""));
 }
 
+interface ClipboardCommand {
+	command: string;
+	args: string[];
+	env?: NodeJS.ProcessEnv;
+}
+
 function createCommandClipboard(
 	name: string,
-	read: { command: string; args: string[] },
-	write: { command: string; args: string[] },
+	read: ClipboardCommand,
+	write: ClipboardCommand,
 ): ClipboardProvider {
 	return {
 		name,
@@ -86,10 +134,16 @@ function createCommandClipboard(
 
 async function resolveClipboardProvider(): Promise<ClipboardProvider> {
 	if (process.platform === "darwin") {
+		// pbcopy and pbpaste encode text with the process locale. Without a
+		// UTF-8 LC_CTYPE (SSH sessions, launchd, some terminals) they fall back
+		// to Mac Roman and corrupt non-Latin text.
+		const env: NodeJS.ProcessEnv = { ...process.env, LC_CTYPE: "UTF-8" };
+		delete env.LC_ALL;
+
 		return createCommandClipboard(
 			"macOS pasteboard",
-			{ command: "pbpaste", args: [] },
-			{ command: "pbcopy", args: [] },
+			{ command: "pbpaste", args: [], env },
+			{ command: "pbcopy", args: [], env },
 		);
 	}
 
@@ -170,10 +224,7 @@ async function resolveClipboardProvider(): Promise<ClipboardProvider> {
 }
 
 function runClipboardCommand(
-	specification: {
-		command: string;
-		args: string[];
-	},
+	specification: ClipboardCommand,
 	input?: string,
 ): string {
 	// X11 clipboard tools fork a background selection owner after a write.
@@ -181,6 +232,7 @@ function runClipboardCommand(
 	// wait forever, so write operations must not use captured output streams.
 	const result = spawnSync(specification.command, specification.args, {
 		encoding: "utf8",
+		env: specification.env,
 		input,
 		maxBuffer: 16 * 1024 * 1024,
 		stdio: input === undefined
@@ -268,7 +320,7 @@ function parseShortcut(
 			shortcut.meta = true;
 		} else if (shortcut.key === 0) {
 			const keyName = normalizeShortcutKey(token);
-			const keys = UiohookKey as Record<string, number>;
+			const keys = loadUiohook().UiohookKey as Record<string, number>;
 			shortcut.key = keys[keyName] ?? 0;
 		} else {
 			throw new Error(`Shortcut contains multiple main keys: ${value}`);
@@ -297,6 +349,7 @@ function matchesShortcut(
 }
 
 function tapApplicationShortcut(key: number): void {
+	const { uIOhook, UiohookKey } = loadUiohook();
 	const modifier = process.platform === "darwin"
 		? UiohookKey.Meta
 		: UiohookKey.Ctrl;
@@ -332,6 +385,7 @@ async function ensureWaylandDesktopEntry(): Promise<string | undefined> {
 }
 
 function tapShortcut(shortcut: Shortcut): void {
+	const { uIOhook, UiohookKey } = loadUiohook();
 	const modifiers: number[] = [
 		...(shortcut.ctrl ? [UiohookKey.Ctrl] : []),
 		...(shortcut.alt ? [UiohookKey.Alt] : []),
@@ -352,6 +406,8 @@ function tapShortcut(shortcut: Shortcut): void {
 }
 
 function tapEndOfText(): void {
+	const { uIOhook, UiohookKey } = loadUiohook();
+
 	if (process.platform === "darwin") {
 		uIOhook.keyTap(UiohookKey.ArrowRight, [UiohookKey.Meta]);
 		return;
@@ -362,7 +418,7 @@ function tapEndOfText(): void {
 
 const uiohookKeyboardController: KeyboardController = {
 	tapApplicationShortcut: async (key) => {
-		const keycode = (UiohookKey as Record<string, number>)[
+		const keycode = (loadUiohook().UiohookKey as Record<string, number>)[
 			normalizeShortcutKey(key)
 		];
 
@@ -382,73 +438,113 @@ const uiohookKeyboardController: KeyboardController = {
 	},
 };
 
-async function trySelectInputSource(layoutId: string): Promise<string | undefined> {
-	if (process.platform === "darwin") {
-		// macOS does not expose a supported command-line API for selecting an
-		// input source. Use the user's configured system shortcut instead.
-		return undefined;
-	}
+type InputSourceSelection =
+	| { kind: "selected"; description: string }
+	| { kind: "use-shortcut" }
+	| { kind: "unavailable"; reason: string };
 
+async function trySelectInputSource(
+	layoutId: string,
+): Promise<InputSourceSelection> {
+	// macOS does not expose a supported command-line API for selecting an
+	// input source. Use the user's configured system shortcut instead.
 	if (process.platform !== "linux") {
-		return undefined;
-	}
-
-	if (process.env.WAYLAND_DISPLAY) {
-		return undefined;
+		return { kind: "use-shortcut" };
 	}
 
 	const layoutCode = portableLayoutCode(layoutId);
 
 	if (!layoutCode) {
-		return undefined;
+		return { kind: "use-shortcut" };
 	}
 
-	// `gsettings` is installed on many headless Linux images, but changing its
-	// input-source index only affects the keyboard when a GNOME session is
-	// actually running. Prefer setxkbmap on plain X11/Xvfb sessions.
-	if (isGnomeSession() && commandExists("gsettings")) {
-		const sources = spawnSync(
-			"gsettings",
-			["get", "org.gnome.desktop.input-sources", "sources"],
-			{ encoding: "utf8", windowsHide: true },
-		);
+	// GNOME owns the keyboard configuration: it ignores the deprecated
+	// `current` gsettings key and overrides setxkbmap, so the desktop's own
+	// switch shortcut is the only dependable way to change the input source.
+	if (isGnomeSession()) {
+		if (commandExists("gsettings")) {
+			const sources = spawnSync(
+				"gsettings",
+				["get", "org.gnome.desktop.input-sources", "sources"],
+				{ encoding: "utf8" },
+			);
 
-		if (sources.status === 0) {
-			const layouts = parseGnomeInputSources(sources.stdout);
-			const index = layouts.indexOf(layoutCode);
-
-			if (index >= 0) {
-				const selected = spawnSync(
-					"gsettings",
-					[
-						"set",
-						"org.gnome.desktop.input-sources",
-						"current",
-						String(index),
-					],
-					{ encoding: "utf8", windowsHide: true },
-				);
-
-				if (selected.status === 0) {
-					return `GNOME input source ${layoutCode}`;
-				}
+			if (
+				sources.status === 0 &&
+				!parseGnomeInputSources(sources.stdout).includes(layoutCode)
+			) {
+				return {
+					kind: "unavailable",
+					reason: `${layoutCode} is not one of the GNOME input sources`,
+				};
 			}
 		}
+
+		return { kind: "use-shortcut" };
 	}
 
-	if (commandExists("setxkbmap")) {
-		const selected = spawnSync(
-			"setxkbmap",
-			["-layout", layoutCode],
-			{ encoding: "utf8", windowsHide: true },
-		);
+	if (commandExists("xkb-switch")) {
+		const selected = spawnSync("xkb-switch", ["-s", layoutCode], {
+			encoding: "utf8",
+		});
 
 		if (selected.status === 0) {
-			return `X11 keyboard layout ${layoutCode}`;
+			return {
+				kind: "selected",
+				description: `X11 keyboard group ${layoutCode}`,
+			};
 		}
 	}
 
-	return undefined;
+	if (!commandExists("setxkbmap")) {
+		return { kind: "use-shortcut" };
+	}
+
+	const query = spawnSync("setxkbmap", ["-query"], { encoding: "utf8" });
+
+	if (query.status !== 0) {
+		return { kind: "use-shortcut" };
+	}
+
+	const current = parseXkbQuery(query.stdout);
+
+	// The target is already one of several configured layouts. Rewriting the
+	// layout list cannot select a group, so let the desktop shortcut do it.
+	if (current.layouts.length > 1 && current.layouts.includes(layoutCode)) {
+		return { kind: "use-shortcut" };
+	}
+
+	if (current.layouts.length === 1 && current.layouts[0] === layoutCode) {
+		return {
+			kind: "selected",
+			description: `X11 keyboard layout ${layoutCode} (already active)`,
+		};
+	}
+
+	// The target is not configured yet. Put it first and keep every existing
+	// layout, variant and option so the user's own toggle keeps working.
+	const next = prependXkbLayout(current, layoutCode);
+	const selected = spawnSync(
+		"setxkbmap",
+		[
+			"-layout",
+			next.layouts.join(","),
+			// Without variants there is nothing to realign with the new order.
+			...(next.variants.some(Boolean)
+				? ["-variant", next.variants.join(",")]
+				: []),
+		],
+		{ encoding: "utf8" },
+	);
+
+	if (selected.status === 0) {
+		return {
+			kind: "selected",
+			description: `X11 keyboard layouts ${next.layouts.join(",")}`,
+		};
+	}
+
+	return { kind: "use-shortcut" };
 }
 
 async function switchInputLanguage(
@@ -468,10 +564,15 @@ async function switchInputLanguage(
 		return;
 	}
 
-	const selectedSource = await trySelectInputSource(targetLayout);
+	const selection = await trySelectInputSource(targetLayout);
 
-	if (selectedSource) {
-		await log(`Switched directly to ${selectedSource}.`);
+	if (selection.kind === "selected") {
+		await log(`Switched directly to ${selection.description}.`);
+		return;
+	}
+
+	if (selection.kind === "unavailable") {
+		await log(`Input-language switch skipped: ${selection.reason}.`);
 		return;
 	}
 
@@ -520,6 +621,7 @@ async function waitForShortcutRelease(
 	pressedKeys: Set<number>,
 	shortcut: Shortcut,
 ): Promise<void> {
+	const { UiohookKey } = loadUiohook();
 	const relevantKeys = [
 		shortcut.key,
 		...(shortcut.ctrl ? [UiohookKey.Ctrl, UiohookKey.CtrlRight] : []),
@@ -725,6 +827,7 @@ async function run(): Promise<void> {
 		return;
 	}
 
+	const { uIOhook } = loadUiohook();
 	const shortcut = parseShortcut(config.shortcut);
 	const pressedKeys = new Set<number>();
 	let shortcutWasDown = false;

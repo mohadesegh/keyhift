@@ -105,13 +105,25 @@ Platform requirements:
 
 - Windows: .NET Framework 4.x runtime
 - macOS: grant Accessibility permission to the terminal/Node process
-- Linux X11: `xclip` or `xsel`
+- Linux X11: `xclip` or `xsel`, glibc 2.34 or newer (Ubuntu 22.04, Debian 12,
+  Fedora 35 and later) and the `libX11`, `libXtst`, `libXt` and `libXrandr`
+  libraries
 - Linux Wayland: `wl-clipboard`, `xdg-desktop-portal`, and a portal backend
   that implements Global Shortcuts and Remote Desktop (such as KDE Plasma)
 
-The npm package includes the Windows executable and prebuilt macOS/Linux
-global-input bindings. The .NET Framework compiler is required only when
-building the Windows host from source.
+The npm package includes the Windows executable. The macOS/Linux global-input
+binding (`uiohook-napi`) is an optional dependency with prebuilt binaries for
+macOS x64/arm64 and glibc Linux x64/arm64. On other systems (Alpine/musl,
+32-bit ARM, older glibc) KeyShift still installs; the global shortcut is then
+unavailable unless a C/C++ toolchain and the X11 development headers were
+present at install time, but `keyshift convert-clipboard` keeps working.
+
+Wayland compositors without both portals (Sway and other wlroots compositors,
+for example) cannot provide the global shortcut. Bind
+`keyshift convert-clipboard` to a compositor shortcut there instead.
+
+The .NET Framework compiler is required only when building the Windows host
+from source.
 
 ---
 
@@ -136,10 +148,15 @@ For macOS, allow the terminal or Node.js under **System Settings > Privacy &
 Security > Accessibility** so KeyShift can observe the shortcut and send
 copy/paste keystrokes.
 
-After a successful macOS/Linux X11 shortcut conversion, KeyShift also triggers
-the configured system input-language shortcut. Defaults are `Control+Space`
-on macOS and `Meta+Space` on Linux X11. If your desktop uses another shortcut,
-configure it and restart KeyShift:
+After a successful macOS/Linux X11 shortcut conversion, KeyShift also switches
+the input language. On macOS, on GNOME, and whenever the target layout is
+already one of several configured X11 layouts, it presses the configured system
+input-language shortcut. Defaults are `Control+Space` on macOS and
+`Meta+Space` on Linux X11. On other X11 desktops KeyShift uses `xkb-switch`
+when it is installed; if the target layout is not configured at all, it is
+added in front of the existing layouts with `setxkbmap`, keeping their
+variants and options. If your desktop uses another shortcut, configure it and
+restart KeyShift:
 
 ```bash
 keyshift config set languageSwitchShortcut Alt+Shift
@@ -345,9 +362,10 @@ keyshift uninstall
 ```
 
 Stops KeyShift, removes its configuration, logs, installed native host and
-Wayland desktop entry, then removes the global npm package. If npm needs
+Wayland desktop entry, then removes the global package with the package manager
+that installed it (npm, pnpm, Yarn or Bun). If the package manager needs
 elevated package-directory access, the command keeps the local cleanup and
-prints the manual `npm uninstall -g keyshift` fallback.
+prints the matching manual command (for example `npm uninstall -g keyshift`).
 
 To remove only KeyShift's local data while keeping the npm package installed:
 
@@ -1206,12 +1224,13 @@ Use the **Release npm package** GitHub Actions workflow. First run it with
 and the KDE/KWin Wayland test, set `dry_run` to false, and enter the exact
 version from `package.json`.
 
-The workflow blocks publication unless the cross-platform integration matrix
-passes. `prepublishOnly` also rebuilds, retests, checks that the version is not
-already present on npm, verifies the tarball contents, and requires the release
-approval environment variable. Configure the `npm-publish` GitHub environment
-and either npm trusted publishing or the `NPM_TOKEN` repository secret before
-the first release.
+The integration workflow packs the package once on Windows, where the native
+host is compiled from `native/KeyShiftHost.cs`, and every platform in the
+matrix installs and tests that tarball. The release workflow blocks publication
+unless the matrix passes, checks that the version is not already on npm,
+verifies the tarball contents, and then publishes that same tarball. Configure
+the `npm-publish` GitHub environment and either npm trusted publishing or the
+`NPM_TOKEN` repository secret before the first release.
 
 ---
 

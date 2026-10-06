@@ -14,8 +14,10 @@ trap cleanup EXIT
 if [[ "${KEYSHIFT_TEST_GLOBAL_INPUT:-0}" != "1" ]]; then
   "$keyshift_command" config set switchInputLanguage false
   printf 'sghl' | pbcopy
-  "$keyshift_command" convert-clipboard
-  actual="$(pbpaste)"
+  # Run KeyShift under a non-UTF-8 locale: pbcopy/pbpaste would otherwise
+  # corrupt the Persian result unless KeyShift forces UTF-8 itself.
+  LANG=C LC_ALL=C "$keyshift_command" convert-clipboard
+  actual="$(LC_CTYPE=UTF-8 pbpaste)"
   [[ "$actual" == "سلام" ]] || {
     printf 'Expected: سلام\nActual: %s\n' "$actual" >&2
     exit 1
@@ -50,7 +52,7 @@ end tell
 APPLESCRIPT
 
 sleep 1
-actual="$(pbpaste)"
+actual="$(LC_CTYPE=UTF-8 pbpaste)"
 [[ "$actual" == "سلام" ]] || {
   printf 'Expected: سلام\nActual: %s\n' "$actual" >&2
   exit 1

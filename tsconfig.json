@@ -18,6 +18,7 @@
 
 		"declaration": false,
 		"sourceMap": false,
+		"newLine": "lf",
 		"resolveJsonModule": true
 	},
 	"include": ["src/**/*.ts"],

@@ -16,7 +16,9 @@ const {
 } = require("../dist/portable-layouts.js");
 const {
 	parseGnomeInputSources,
+	parseXkbQuery,
 	portableLayoutCode,
+	prependXkbLayout,
 } = require("../dist/input-sources.js");
 const {
 	getDefaultLanguageSwitchShortcut,
@@ -52,6 +54,27 @@ assert.equal(portableLayoutCode("00000429"), "ir");
 assert.deepEqual(
 	parseGnomeInputSources("[('xkb', 'us'), ('ibus', 'mozc-jp'), ('xkb', 'ir+pes_keypad')]"),
 	["us", "ir"],
+);
+
+const xkbState = parseXkbQuery(
+	"rules:      evdev\nmodel:      pc105\nlayout:     us,de\n" +
+		"variant:    ,nodeadkeys\noptions:    grp:alt_shift_toggle\n",
+);
+assert.deepEqual(xkbState, {
+	layouts: ["us", "de"],
+	variants: ["", "nodeadkeys"],
+});
+assert.deepEqual(parseXkbQuery("layout:     us\n"), {
+	layouts: ["us"],
+	variants: [""],
+});
+assert.deepEqual(prependXkbLayout(xkbState, "ir"), {
+	layouts: ["ir", "us", "de"],
+	variants: ["", "", "nodeadkeys"],
+});
+assert.deepEqual(
+	prependXkbLayout({ layouts: ["us", "ir"], variants: ["", "pes_keypad"] }, "ir"),
+	{ layouts: ["ir", "us"], variants: ["", ""] },
 );
 
 assert.equal(normalizePortableLayoutId("00000409"), "en-US");
