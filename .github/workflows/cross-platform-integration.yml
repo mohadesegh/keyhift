@@ -69,7 +69,7 @@ jobs:
           cache: npm
 
       # uiohook-napi has no working prebuilt binary for Linux arm64, so it is
-      # compiled while the package is installed.
+      # compiled from source while the packed CLI is installed.
       - name: Install Linux arm64 build requirements
         if: runner.os == 'Linux' && runner.arch == 'ARM64'
         run: |
@@ -87,6 +87,9 @@ jobs:
         shell: bash
         run: |
           archive="$(ls keyshift-*.tgz)"
+          if [[ "$RUNNER_OS" == "Linux" && "$RUNNER_ARCH" == "ARM64" ]]; then
+            export npm_config_build_from_source=true
+          fi
           npm install --global --prefix "$RUNNER_TEMP/keyshift-prefix" "./$archive"
 
       - name: Install Linux integration dependencies

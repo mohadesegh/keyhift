@@ -78,16 +78,18 @@ function loadUiohook(): UiohookModule {
 					? "Reinstall KeyShift with install scripts enabled so the module can be built."
 					: process.arch === "x64"
 						? "Its prebuilt binary needs glibc 2.34 or newer and the libX11, " +
-							"libXtst, libXt and libXrandr libraries. On older systems install " +
-							"the build requirements below and reinstall KeyShift."
+							"libXtst, libXt and libXrandr libraries. On other systems it " +
+							"has to be compiled from source."
 						: "It only ships a working Linux binary for x64, so on this " +
-							"architecture it is compiled during installation.",
+							"architecture it has to be compiled from source.",
 				...(process.platform === "linux"
 					? [
-						"Build requirements: a C/C++ toolchain, python3 and the X11 " +
+						"To compile it, install a C/C++ toolchain, python3 and the X11 " +
 							"development headers, for example on Debian/Ubuntu: " +
 							"sudo apt-get install build-essential python3 libx11-dev " +
 							"libxtst-dev libxt-dev libxrandr-dev",
+						"Then reinstall with: " +
+							"npm_config_build_from_source=true npm install -g keyshift",
 					]
 					: []),
 				"Clipboard conversion still works: copy the text and run " +

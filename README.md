@@ -114,16 +114,18 @@ Platform requirements:
 The npm package includes the Windows executable. The macOS/Linux global-input
 binding (`uiohook-napi`) is an optional dependency with working prebuilt
 binaries for macOS x64/arm64 and glibc Linux x64. On every other Linux system
-(arm64, Alpine/musl, 32-bit ARM, older glibc) it is compiled during
-installation, which needs a C/C++ toolchain, python3 and the X11 development
-headers. On Debian/Ubuntu install them before KeyShift:
+(arm64, Alpine/musl, 32-bit ARM, older glibc) it has to be compiled from
+source, which needs a C/C++ toolchain, python3 and the X11 development
+headers. On Debian/Ubuntu:
 
 ```bash
 sudo apt-get install build-essential python3 libx11-dev libxtst-dev libxt-dev libxrandr-dev
+npm_config_build_from_source=true npm install -g keyshift
 ```
 
-Without them KeyShift still installs and `keyshift convert-clipboard` keeps
-working; only the global shortcut is unavailable.
+With a plain `npm install -g keyshift` on those systems KeyShift still installs
+and `keyshift convert-clipboard` keeps working; only the global shortcut is
+unavailable.
 
 Wayland compositors without both portals (Sway and other wlroots compositors,
 for example) cannot provide the global shortcut. Bind
